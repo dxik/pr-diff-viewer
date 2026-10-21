@@ -1,52 +1,27 @@
 # PR Diff Viewer
 
-Local GitHub pull request viewer for reviewing commits, comments, checks, and file diffs. It can also create and merge pull requests using the GitHub account authenticated in `gh`.
+Local viewer for existing pull requests in `PaulSklarXfit/psxfit365-monorepo`. Browse reviews, conversation and inline comments, checks, commits, and code diffs. Users with GitHub merge permission can merge a PR after confirming it.
 
 ## Requirements
 
 - Node.js 24 and pnpm 10
-- Git and GitHub CLI (`gh`)
-- GitHub access to the target repository (`gh auth login`)
+- GitHub CLI (`gh`) authenticated with access to `PaulSklarXfit/psxfit365-monorepo`
 
-The app binds to `127.0.0.1`. Each person runs their own copy and uses their own GitHub permissions.
+Each person runs the app locally using their own GitHub account. No checkout of the target repository is required. macOS, Linux, and Windows are supported when Node, pnpm, and `gh` are available.
 
 ## Install and run
-
-Clone this app and install its dependencies:
 
 ```sh
 git clone https://github.com/dxik/pr-diff-viewer.git
 cd pr-diff-viewer
 pnpm install --frozen-lockfile
 gh auth login
-```
-
-Run the app:
-
-```sh
 pnpm dev
 ```
 
-The default target is `PaulSklarXfit/psxfit365-monorepo`. To use another repository, set `PR_REVIEW_REPO=owner/repo` (or `$env:PR_REVIEW_REPO = "owner/repo"` in PowerShell) before starting. No local checkout is required to browse, review, create a PR from a GitHub branch, or merge.
+Open <http://127.0.0.1:4317>. The API runs on `127.0.0.1:4318`. For a local production build, run `pnpm build` followed by `pnpm start`, then open <http://127.0.0.1:4318>.
 
-To push and create a PR from the current local checkout, set `PR_REVIEW_REPO_ROOT` to its absolute path. For macOS or Linux:
-
-```sh
-PR_REVIEW_REPO_ROOT="$HOME/code/psxfit365-monorepo" pnpm dev
-```
-
-For Windows PowerShell:
-
-```powershell
-$env:PR_REVIEW_REPO_ROOT = "C:\code\psxfit365-monorepo"
-pnpm dev
-```
-
-Open <http://127.0.0.1:4317>. The API runs on `127.0.0.1:4318`.
-
-For a local production build, run `pnpm build` followed by `pnpm start`, then open <http://127.0.0.1:4318>.
-
-The current pull request creation flow targets the `dev` branch. Merge follows GitHub's repository rules and requires the authenticated user to have merge permission.
+The app only reads PRs from the fixed repository and offers merge where GitHub permits it. It does not create PRs or use the current local branch.
 
 ## Checks
 

@@ -6,7 +6,6 @@ import { fileURLToPath } from 'node:url';
 import { createGitService, createRunner, ServiceError, type GitService, type PrListState } from './git-service.js';
 
 const appRoot = resolve(fileURLToPath(new URL('.', import.meta.url)), '..');
-const defaultRepo = 'PaulSklarXfit/psxfit365-monorepo';
 const mimeTypes: Record<string, string> = {
   '.html': 'text/html; charset=utf-8', '.js': 'text/javascript; charset=utf-8',
   '.css': 'text/css; charset=utf-8', '.svg': 'image/svg+xml', '.png': 'image/png',
@@ -15,12 +14,6 @@ const mimeTypes: Record<string, string> = {
 function sendJson(response: ServerResponse, status: number, value: unknown) {
   response.writeHead(status, { 'Content-Type': 'application/json; charset=utf-8', 'Cache-Control': 'no-store' });
   response.end(JSON.stringify(value));
-}
-
-function validBranchName(name: string): boolean {
-  return name.length > 0 && name.length <= 255 && !name.startsWith('-') &&
-    !name.includes('..') && !name.includes('@{') && !/\s|[~^:?*[\]\\]/u.test(name) &&
-    name.split('/').every((part) => part.length > 0 && !part.startsWith('.') && !part.endsWith('.') && !part.endsWith('.lock'));
 }
 
 async function readJson(request: IncomingMessage): Promise<Record<string, unknown>> {
@@ -38,9 +31,8 @@ async function readJson(request: IncomingMessage): Promise<Record<string, unknow
   }
 }
 
-export function createServer(options: { service?: GitService; staticDir?: string; repoRoot?: string | null } = {}) {
-  const repoRoot = options.repoRoot === undefined ? process.env.PR_REVIEW_REPO_ROOT : options.repoRoot;
-  const service = options.service ?? createGitService(createRunner(repoRoot ? resolve(repoRoot) : appRoot, process.env.PR_REVIEW_REPO ?? defaultRepo));
+export function createServer(options: { service?: GitService; staticDir?: string; } = {}) {
+  const service = options.service ?? createGitService(createRunner());
   const staticDir = options.staticDir ?? resolve(appRoot, 'dist');
   const csrfToken = randomBytes(32).toString('hex');
 
@@ -68,8 +60,6 @@ export function createServer(options: { service?: GitService; staticDir?: string
         }
         if (request.method === 'GET' && url.pathname === '/api/session') {
           sendJson(response, 200, { csrfToken });
-        } else if (request.method === 'GET' && url.pathname === '/api/summary') {
-          sendJson(response, 200, { ...(repoRoot ? await service.summary() : { branch: '', headSha: '', pr: null }), csrfToken });
         } else if (request.method === 'GET' && url.pathname === '/api/prs') {
           const states = url.searchParams.getAll('state');
           const state = states.length === 0 ? 'open' : states[0];
@@ -77,8 +67,6 @@ export function createServer(options: { service?: GitService; staticDir?: string
             throw new ServiceError('Trạng thái PR không hợp lệ.', 400);
           }
           sendJson(response, 200, await service.listPrs(state as PrListState));
-        } else if (request.method === 'GET' && url.pathname === '/api/branches') {
-          sendJson(response, 200, await service.listBranches());
         } else if (request.method === 'POST' && /^\/api\/prs\/[^/]+\/merge$/.test(url.pathname)) {
           const rawNumber = url.pathname.split('/')[3];
           const number = Number(rawNumber);
@@ -100,37 +88,6 @@ export function createServer(options: { service?: GitService; staticDir?: string
           if (match?.[2] === 'files') sendJson(response, 200, await service.prFiles(number));
           else if (match?.[2] === 'commits') sendJson(response, 200, await service.prCommits(number));
           else sendJson(response, 200, await service.prDetail(number));
-        } else if (request.method === 'GET' && url.pathname === '/api/push-status') {
-          if (!repoRoot) throw new ServiceError('Chưa cấu hình checkout local.', 409);
-          sendJson(response, 200, await service.pushStatus());
-        } else if (request.method === 'POST' && url.pathname === '/api/push') {
-          if (!repoRoot) throw new ServiceError('Chưa cấu hình checkout local.', 409);
-          const body = await readJson(request);
-          if (typeof body.expectedHeadSha !== 'string' || !/^[0-9a-f]{40,64}$/.test(body.expectedHeadSha)) {
-            throw new ServiceError('HEAD SHA không hợp lệ.', 400);
-          }
-          sendJson(response, 200, await service.push(body.expectedHeadSha));
-        } else if (request.method === 'POST' && url.pathname === '/api/pr') {
-          if (!repoRoot) throw new ServiceError('Chưa cấu hình checkout local.', 409);
-          const body = await readJson(request);
-          if (typeof body.title !== 'string' || !body.title.trim() || body.title.length > 256 ||
-              typeof body.body !== 'string' || body.body.length > 65_000 || typeof body.draft !== 'boolean' ||
-              typeof body.expectedHeadSha !== 'string' || !/^[0-9a-f]{40,64}$/.test(body.expectedHeadSha)) {
-            throw new ServiceError('Thông tin PR không hợp lệ.', 400);
-          }
-          sendJson(response, 200, await service.createPr({
-            title: body.title.trim(), body: body.body, draft: body.draft, expectedHeadSha: body.expectedHeadSha,
-          }));
-        } else if (request.method === 'POST' && url.pathname === '/api/pr/remote') {
-          const body = await readJson(request);
-          if (typeof body.headBranch !== 'string' || !validBranchName(body.headBranch) ||
-              typeof body.title !== 'string' || !body.title.trim() || body.title.length > 256 ||
-              typeof body.body !== 'string' || body.body.length > 65_000 || typeof body.draft !== 'boolean') {
-            throw new ServiceError('Thông tin PR không hợp lệ.', 400);
-          }
-          sendJson(response, 200, await service.createRemotePr({
-            headBranch: body.headBranch, title: body.title.trim(), body: body.body, draft: body.draft,
-          }));
         } else {
           throw new ServiceError('API không tồn tại.', 404);
         }

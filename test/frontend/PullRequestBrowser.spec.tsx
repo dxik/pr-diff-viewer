@@ -35,26 +35,24 @@ afterEach(() => { cleanup(); window.localStorage.clear(); vi.unstubAllGlobals();
 describe("pull request browser", () => {
   it("confirms merge and refreshes the merged PR list", async () => {
     const head = "a".repeat(40);
-    const onMerged = vi.fn();
     const fetchMock = mockApi({
       "/api/prs": { items: [items[0], { ...items[0], state: "MERGED" }] },
       "/api/prs/143": { pr: { ...items[0], headRefOid: head, body: "", checks: [] }, comments: [] },
       "POST /api/prs/143/merge": { number: 143 },
     });
-    render(<PullRequestBrowser currentPrNumber={143} onMerged={onMerged} />);
+    render(<PullRequestBrowser />);
     fireEvent.click(await screen.findByRole("button", { name: "Merge" }));
     expect(screen.getByRole("dialog", { name: "Merge pull request" })).toBeTruthy();
     expect(fetchMock).not.toHaveBeenCalledWith("/api/prs/143/merge", expect.anything());
     fireEvent.click(screen.getByRole("button", { name: "Confirm merge" }));
     await waitFor(() => expect(fetchMock).toHaveBeenCalledWith("/api/prs/143/merge", expect.objectContaining({ method: "POST", body: JSON.stringify({ expectedHeadSha: head }) })));
     expect(await screen.findByText("PR #143 merged.")).toBeTruthy();
-    expect(onMerged).toHaveBeenCalledOnce();
     expect(screen.getByRole("button", { name: "Merged" })).toHaveAttribute("aria-pressed", "true");
   });
 
   it("does not offer merge for a draft or merged PR", async () => {
     mockApi({ "/api/prs": { items }, "/api/prs/142": { pr: { ...items[1], headRefOid: "a".repeat(40), body: "Draft body", checks: [] }, comments: [] }, "/api/prs/141": { pr: { ...items[2], headRefOid: "a".repeat(40), body: "Merged body", checks: [] }, comments: [] } });
-    render(<PullRequestBrowser currentPrNumber={142} />);
+    render(<PullRequestBrowser />);
     await screen.findByText("Draft");
     expect(screen.queryByRole("button", { name: "Merge" })).toBeNull();
     fireEvent.click(screen.getByRole("button", { name: "Merged" }));
@@ -68,7 +66,7 @@ describe("pull request browser", () => {
       "/api/prs/143": { pr: { ...items[0], headRefOid: "a".repeat(40), body: "", checks: [] }, comments: [] },
       "POST /api/prs/143/merge": new Error("PR head changed"),
     });
-    render(<PullRequestBrowser currentPrNumber={143} />);
+    render(<PullRequestBrowser />);
     fireEvent.click(await screen.findByRole("button", { name: "Merge" }));
     fireEvent.click(screen.getByRole("button", { name: "Cancel" }));
     expect(fetchMock).not.toHaveBeenCalledWith("/api/prs/143/merge", expect.anything());
@@ -85,7 +83,7 @@ describe("pull request browser", () => {
       "/api/prs/143": { pr: { ...items[0], body: "", checks: [] }, comments: [] },
       "/api/prs/142": { pr: { ...items[1], body: "", checks: [] }, comments: [] },
     });
-    render(<PullRequestBrowser currentPrNumber={143} />);
+    render(<PullRequestBrowser />);
 
     fireEvent.click(await screen.findByRole("button", { name: "Copy PR URL" }));
     await waitFor(() => expect(writeText).toHaveBeenCalledWith(items[0].url));
@@ -96,13 +94,14 @@ describe("pull request browser", () => {
     expect(await screen.findByRole("button", { name: "Copy PR URL" })).toBeTruthy();
   });
 
-  it("selects the current branch PR, shows checks and plain text comments", async () => {
+  it("selects a PR and shows checks and plain text comments", async () => {
     mockApi({
       "/api/prs": { items },
       "/api/prs/142": { pr: { ...items[1], body: "Draft body", checks: [{ name: "build", status: "IN_PROGRESS", conclusion: null }] }, comments: [{ kind: "inline", author: "alice", body: "Please check this line", createdAt: "2026-10-15T05:00:00Z", url: "https://github.com/psxfit365/repo/pull/142#discussion_r1", path: "src/a.ts", line: 12 }] },
     });
-    render(<PullRequestBrowser currentPrNumber={142} />);
-    expect(await screen.findByRole("button", { name: /PR #142 Work in progress/i })).toHaveAttribute("aria-current", "true");
+    render(<PullRequestBrowser />);
+    fireEvent.click(await screen.findByRole("button", { name: /PR #142 Work in progress/i }));
+    expect(screen.getByRole("button", { name: /PR #142 Work in progress/i })).toHaveAttribute("aria-current", "true");
     expect(await screen.findByText("Please check this line")).toBeTruthy();
     expect(screen.getByText("src/a.ts:12")).toBeTruthy();
     expect(screen.getByText("Draft body")).toBeTruthy();
@@ -111,7 +110,7 @@ describe("pull request browser", () => {
 
   it("filters PRs and fetches selected details", async () => {
     const fetchMock = mockApi({ "/api/prs": { items }, "/api/prs/143": { pr: { ...items[0], body: "Body", checks: [] }, comments: [] }, "/api/prs/141": { pr: { ...items[2], body: "Merged body", checks: [] }, comments: [] } });
-    render(<PullRequestBrowser currentPrNumber={null} />);
+    render(<PullRequestBrowser />);
     expect(await screen.findByRole("button", { name: /PR #143 Improve training plan/i })).toBeTruthy();
     expect(screen.getByRole("button", { name: "Open" })).toHaveAttribute("aria-pressed", "true");
     expect(fetchMock).toHaveBeenCalledWith("/api/prs?state=open", undefined);
@@ -128,14 +127,14 @@ describe("pull request browser", () => {
 
   it("starts with an open PR when the current branch PR is merged", async () => {
     mockApi({ "/api/prs": { items }, "/api/prs/143": { pr: { ...items[0], body: "Open body", checks: [] }, comments: [] } });
-    render(<PullRequestBrowser currentPrNumber={141} />);
+    render(<PullRequestBrowser />);
     expect(await screen.findByRole("button", { name: /PR #143 Improve training plan/i })).toHaveAttribute("aria-current", "true");
     expect(screen.queryByRole("button", { name: /PR #141 Older work/i })).toBeNull();
   });
 
   it("shows no open PRs and lets the user browse merged PRs", async () => {
     mockApi({ "/api/prs": { items: [items[2]] }, "/api/prs/141": { pr: { ...items[2], body: "Merged body", checks: [] }, comments: [] } });
-    render(<PullRequestBrowser currentPrNumber={141} />);
+    render(<PullRequestBrowser />);
     expect(await screen.findByText("No pull requests found.")).toBeTruthy();
     expect(screen.getByText("Select a pull request to see its status and comments.")).toBeTruthy();
     fireEvent.click(screen.getByRole("button", { name: "Merged" }));
@@ -144,17 +143,17 @@ describe("pull request browser", () => {
 
   it("shows empty and error states", async () => {
     mockApi({ "/api/prs": { items: [] } });
-    const view = render(<PullRequestBrowser currentPrNumber={null} />);
+    const view = render(<PullRequestBrowser />);
     expect(await screen.findByText("No pull requests found.")).toBeTruthy();
     view.unmount();
     mockApi({ "/api/prs": new Error("GitHub unavailable") });
-    render(<PullRequestBrowser currentPrNumber={null} />);
+    render(<PullRequestBrowser />);
     expect(await screen.findByRole("alert")).toHaveProperty("textContent", "GitHub unavailable");
   });
 
   it("does not link to an untrusted comment URL", async () => {
     mockApi({ "/api/prs": { items: [items[0]] }, "/api/prs/143": { pr: { ...items[0], body: "", checks: [] }, comments: [{ kind: "conversation", author: "bob", body: "Looks good", createdAt: "2026-10-16T05:00:00Z", url: "javascript:alert(1)" }] } });
-    render(<PullRequestBrowser currentPrNumber={null} />);
+    render(<PullRequestBrowser />);
     expect(await screen.findByText("Looks good")).toBeTruthy();
     expect(screen.queryByRole("link", { name: /View comment/i })).toBeNull();
     await waitFor(() => expect(screen.getByText("No checks reported.")).toBeTruthy());
@@ -174,7 +173,7 @@ describe("pull request browser", () => {
         ] }],
       }, { path: "assets/logo.png", sha: "logo-sha", status: "added", additions: 0, deletions: 0, isBinary: true, patchAvailable: false, hunks: [] }] },
     });
-    render(<PullRequestBrowser currentPrNumber={143} />);
+    render(<PullRequestBrowser />);
     fireEvent.click(await screen.findByRole("tab", { name: "Commits" }));
     expect(await screen.findByText("Improve plan")).toBeTruthy();
     expect(screen.getByText("Alice")).toBeTruthy();
@@ -204,7 +203,7 @@ describe("pull request browser", () => {
       if (path === "/api/prs/143") return { ok: true, json: async () => ({ pr: { ...items[0], body: "", checks: [] }, comments: [] }) };
       return { ok: true, json: async () => ({ files: [{ path: "src/plan.ts", sha: "plan-sha", status: "modified", additions: 1, deletions: 0, isBinary: false, patchAvailable: true, hunks: [{ header: "@@ -0,0 +1 @@", lines: [{ kind: "add", oldNumber: null, newNumber: 1, content: "new content" }] }] }] }) };
     });
-    render(<PullRequestBrowser currentPrNumber={143} />);
+    render(<PullRequestBrowser />);
     fireEvent.click(await screen.findByRole("tab", { name: "Files changed" }));
     const viewed = await screen.findByRole("checkbox", { name: "Viewed src/plan.ts" });
     expect(screen.getByText("new content")).toBeTruthy();
@@ -230,12 +229,12 @@ describe("pull request browser", () => {
       "/api/prs/143/files": { files: [{ path: "src/plan.ts", sha: "plan-sha", status: "modified", additions: 1, deletions: 0, isBinary: false, patchAvailable: true, hunks: [{ header: "@@ -0,0 +1 @@", lines: [{ kind: "add", oldNumber: null, newNumber: 1, content: "new content" }] }] }] },
     };
     mockApi(responses);
-    const view = render(<PullRequestBrowser currentPrNumber={143} />);
+    const view = render(<PullRequestBrowser />);
     fireEvent.click(await screen.findByRole("tab", { name: "Files changed" }));
     fireEvent.click(await screen.findByRole("checkbox", { name: "Viewed src/plan.ts" }));
     await waitFor(() => expect(screen.queryByText("new content")).toBeNull());
     view.unmount();
-    render(<PullRequestBrowser currentPrNumber={143} />);
+    render(<PullRequestBrowser />);
     fireEvent.click(await screen.findByRole("tab", { name: "Files changed" }));
     expect(await screen.findByRole("checkbox", { name: "Viewed src/plan.ts" })).toBeChecked();
     expect(screen.queryByText("new content")).toBeNull();
@@ -248,7 +247,7 @@ describe("pull request browser", () => {
       "/api/prs/143": { pr: { ...items[0], body: "", checks: [] }, comments: [] },
       "/api/prs/143/files": { files: [{ path: "src/plan.ts", sha: "new-sha", status: "modified", additions: 1, deletions: 0, isBinary: false, patchAvailable: true, hunks: [{ header: "@@ -0,0 +1 @@", lines: [{ kind: "add", oldNumber: null, newNumber: 1, content: "updated line" }] }] }] },
     });
-    render(<PullRequestBrowser currentPrNumber={143} />);
+    render(<PullRequestBrowser />);
     fireEvent.click(await screen.findByRole("tab", { name: "Files changed" }));
     expect(await screen.findByText("updated line")).toBeTruthy();
     expect(screen.getByRole("checkbox", { name: "Viewed src/plan.ts" })).not.toBeChecked();
@@ -261,7 +260,7 @@ describe("pull request browser", () => {
       "/api/prs/143": { pr: { ...items[0], body: "", checks: [] }, comments: [] },
       "/api/prs/143/files": { files: [{ path: "src/plan.ts", sha: "plan-sha", status: "modified", additions: 1, deletions: 0, isBinary: false, patchAvailable: true, hunks: [] }] },
     });
-    render(<PullRequestBrowser currentPrNumber={143} />);
+    render(<PullRequestBrowser />);
     fireEvent.click(await screen.findByRole("tab", { name: "Files changed" }));
     fireEvent.click(await screen.findByRole("checkbox", { name: "Viewed src/plan.ts" }));
     expect(screen.getByRole("checkbox", { name: "Viewed src/plan.ts" })).toBeChecked();

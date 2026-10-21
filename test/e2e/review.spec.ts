@@ -1,19 +1,12 @@
 import { expect, test } from '@playwright/test';
 
 const headSha = 'a'.repeat(40);
-function summary(pr: object | null) {
-  return {
-    branch: 'feature/review', headSha, pr, csrfToken: 'test-csrf',
-  };
-}
-
 test('shows PR commits and code changes from GitHub', async ({ page }) => {
   const pr = {
     number: 143, title: 'Review example', body: 'Ready for review',
     url: 'https://github.com/owner/repo/pull/143', state: 'OPEN', isDraft: false,
     reviewDecision: 'APPROVED', checks: [{ name: 'tests', status: 'COMPLETED', conclusion: 'SUCCESS' }],
   };
-  await page.route('**/api/summary', (route) => route.fulfill({ json: summary(pr) }));
   await page.route('**/api/session', (route) => route.fulfill({ json: { csrfToken: 'test-csrf' } }));
   const item = { number: 143, title: pr.title, state: 'OPEN', isDraft: false, headRefName: 'feature/review', baseRefName: 'dev', updatedAt: '', url: pr.url, reviewDecision: 'APPROVED', checkStatus: 'success' };
   await page.route('**/api/prs?state=*', (route) => route.fulfill({ json: { items: [item] } }));
@@ -46,68 +39,6 @@ test('shows PR commits and code changes from GitHub', async ({ page }) => {
   await expect(page.getByText('Fetch dev')).toHaveCount(0);
 });
 
-test('requires push confirmation before creating a PR', async ({ page }) => {
-  let created = false;
-  let pushCount = 0;
-  let createCount = 0;
-  await page.route('**/api/summary', (route) => route.fulfill({
-    json: summary(created ? {
-      number: 144, title: 'My PR', body: 'What changed',
-      url: 'https://github.com/owner/repo/pull/144', state: 'OPEN', isDraft: false,
-      reviewDecision: null, checks: [],
-    } : null),
-  }));
-  await page.route('**/api/prs?state=*', (route) => route.fulfill({ json: { items: [] } }));
-  await page.route('**/api/push-status', (route) => route.fulfill({
-    json: { needsPush: true, branch: 'feature/review', headSha, remoteSha: null },
-  }));
-  await page.route('**/api/push', (route) => {
-    pushCount += 1;
-    return route.fulfill({ json: { branch: 'feature/review', headSha, remoteSha: headSha } });
-  });
-  await page.route('**/api/pr', (route) => {
-    createCount += 1;
-    created = true;
-    return route.fulfill({ json: { url: 'https://github.com/owner/repo/pull/144' } });
-  });
-
-  await page.goto('/');
-  await page.getByRole('button', { name: /New pull request/ }).click();
-  await page.getByLabel('Title').fill('My PR');
-  await page.getByLabel('Description').fill('What changed');
-  await page.getByRole('button', { name: 'Continue' }).click();
-  await expect(page.getByText('Push branch and create PR?')).toBeVisible();
-  expect(pushCount).toBe(0);
-  expect(createCount).toBe(0);
-  await page.getByRole('button', { name: 'Push and create PR' }).click();
-  await expect(page.getByText('PR created: https://github.com/owner/repo/pull/144')).toBeVisible();
-  expect(pushCount).toBe(1);
-  expect(createCount).toBe(1);
-});
-
-test('creates a PR from a GitHub branch while the checkout already has a PR', async ({ page }) => {
-  let pushCount = 0;
-  let created: { headBranch: string; title: string; body: string; draft: boolean } | null = null;
-  await page.route('**/api/summary', (route) => route.fulfill({ json: summary({ number: 143 }) }));
-  await page.route('**/api/branches', (route) => route.fulfill({ json: { branches: [{ name: 'dev', sha: headSha }, { name: 'feature/next', sha: 'b'.repeat(40) }] } }));
-  await page.route('**/api/prs?state=*', (route) => route.fulfill({ json: { items: [] } }));
-  await page.route('**/api/push', (route) => { pushCount += 1; return route.fulfill({ json: {} }); });
-  await page.route('**/api/pr/remote', (route) => {
-    created = route.request().postDataJSON() as typeof created;
-    return route.fulfill({ json: { url: 'https://github.com/owner/repo/pull/144' } });
-  });
-
-  await page.goto('/');
-  await page.getByRole('button', { name: 'New pull request' }).click();
-  await page.getByLabel('Head branch').selectOption('feature/next');
-  await page.getByLabel('Title').fill('Next feature');
-  await page.getByLabel('Create as draft').check();
-  await page.getByRole('button', { name: 'Create pull request' }).click();
-  await expect(page.getByText('PR created: https://github.com/owner/repo/pull/144')).toBeVisible();
-  expect(created).toEqual({ headBranch: 'feature/next', title: 'Next feature', body: '', draft: true });
-  expect(pushCount).toBe(0);
-});
-
 test('filters PRs and shows conversation and inline comments', async ({ page }) => {
   const items = [
     { number: 143, title: 'Review example', state: 'OPEN', isDraft: false,
@@ -117,7 +48,6 @@ test('filters PRs and shows conversation and inline comments', async ({ page }) 
       headRefName: 'feature/older', baseRefName: 'dev', updatedAt: '2026-10-15T04:00:00Z',
       url: 'https://github.com/owner/repo/pull/142', reviewDecision: null, checkStatus: 'none' },
   ];
-  await page.route('**/api/summary', (route) => route.fulfill({ json: summary(null) }));
   await page.route('**/api/prs?state=*', (route) => {
     const state = new URL(route.request().url()).searchParams.get('state');
     return route.fulfill({ json: { items: state === 'all' ? items : items.filter((pr) => pr.state.toLowerCase() === state) } });
@@ -145,4 +75,31 @@ test('filters PRs and shows conversation and inline comments', async ({ page }) 
   await page.getByRole('button', { name: 'Merged', exact: true }).click();
   await expect(page.getByRole('button', { name: 'PR #142 Older change' })).toBeVisible();
   await expect(page.getByRole('button', { name: 'PR #143 Review example' })).toHaveCount(0);
+});
+
+test('confirms merge for an existing PR', async ({ page }) => {
+  const item = { number: 143, title: 'Ready to merge', state: 'OPEN', isDraft: false,
+    headRefName: 'feature/review', baseRefName: 'dev', updatedAt: '',
+    url: 'https://github.com/PaulSklarXfit/psxfit365-monorepo/pull/143',
+    reviewDecision: 'APPROVED', checkStatus: 'success' };
+  let mergeBody: unknown;
+  await page.route('**/api/prs?state=*', (route) => route.fulfill({ json: {
+    items: new URL(route.request().url()).searchParams.get('state') === 'merged' ? [] : [item],
+  } }));
+  await page.route('**/api/prs/143', (route) => route.fulfill({ json: {
+    pr: { ...item, headRefOid: headSha, body: '', checks: [] }, comments: [],
+  } }));
+  await page.route('**/api/session', (route) => route.fulfill({ json: { csrfToken: 'test-csrf' } }));
+  await page.route('**/api/prs/143/merge', (route) => {
+    mergeBody = route.request().postDataJSON();
+    return route.fulfill({ json: { number: 143 } });
+  });
+
+  await page.goto('/');
+  await page.getByRole('button', { name: 'Merge', exact: true }).click();
+  await expect(page.getByRole('dialog', { name: 'Merge pull request' })).toBeVisible();
+  expect(mergeBody).toBeUndefined();
+  await page.getByRole('button', { name: 'Confirm merge' }).click();
+  await expect(page.getByText('PR #143 merged.')).toBeVisible();
+  expect(mergeBody).toEqual({ expectedHeadSha: headSha });
 });

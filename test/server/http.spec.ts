@@ -13,12 +13,6 @@ afterEach(async () => {
 
 function serviceFixture() {
   return {
-    summary: vi.fn(async () => ({ branch: 'feature/review', headSha: head, pr: null })),
-    pushStatus: vi.fn(async () => ({ needsPush: true, branch: 'feature/review', headSha: head, remoteSha: null })),
-    push: vi.fn(async () => ({ branch: 'feature/review', headSha: head, remoteSha: head })),
-    createPr: vi.fn(async () => ({ number: 1 })),
-    listBranches: vi.fn(async () => ({ branches: [{ name: 'feature/review', sha: head }] })),
-    createRemotePr: vi.fn(async () => ({ number: 2 })),
     listPrs: vi.fn(async () => ({ items: [{ number: 143 }] })),
     prDetail: vi.fn(async (number: number) => ({ pr: { number }, comments: [] })),
     prFiles: vi.fn(async (number: number) => ({ files: [{ path: 'src/a.ts', number }] })),
@@ -27,8 +21,8 @@ function serviceFixture() {
   };
 }
 
-async function start(service: ReturnType<typeof serviceFixture>, repoRoot: string | null = '/tmp/pr-review-fixture') {
-  server = createServer({ service: service as unknown as GitService, repoRoot });
+async function start(service: ReturnType<typeof serviceFixture>) {
+  server = createServer({ service: service as unknown as GitService });
   await new Promise<void>((resolve) => server!.listen(0, '127.0.0.1', resolve));
   return (server.address() as { port: number }).port;
 }
@@ -46,19 +40,18 @@ function call(port: number, method: string, path: string, headers: Record<string
 }
 
 describe('local HTTP API', () => {
-  it('serves GitHub PRs without a local checkout and disables local actions', async () => {
+  it('exposes only existing PR and session routes', async () => {
     const service = serviceFixture();
-    const port = await start(service, null);
-    const summary = await call(port, 'GET', '/api/summary');
-    expect(summary.body).toMatchObject({ branch: '', headSha: '', pr: null, csrfToken: expect.any(String) });
-    expect(service.summary).not.toHaveBeenCalled();
+    const port = await start(service);
+    const token = (await call(port, 'GET', '/api/session')).body.csrfToken as string;
+    const headers = { Origin: 'http://127.0.0.1:4317', 'X-CSRF-Token': token, 'Content-Type': 'application/json' };
     expect((await call(port, 'GET', '/api/prs')).status).toBe(200);
-    const headers = { Origin: 'http://127.0.0.1:4317', 'X-CSRF-Token': summary.body.csrfToken as string, 'Content-Type': 'application/json' };
-    expect((await call(port, 'GET', '/api/push-status')).status).toBe(409);
-    expect((await call(port, 'POST', '/api/push', headers, { expectedHeadSha: head })).status).toBe(409);
-    expect((await call(port, 'POST', '/api/pr', headers, { expectedHeadSha: head })).status).toBe(409);
-    expect(service.push).not.toHaveBeenCalled();
-    expect(service.createPr).not.toHaveBeenCalled();
+    for (const path of ['/api/summary', '/api/branches', '/api/push-status']) {
+      expect((await call(port, 'GET', path)).status).toBe(404);
+    }
+    for (const path of ['/api/push', '/api/pr', '/api/pr/remote']) {
+      expect((await call(port, 'POST', path, headers, {})).status).toBe(404);
+    }
   });
   it('validates merge requests and requires the CSRF token', async () => {
     const service = serviceFixture();
@@ -91,15 +84,6 @@ describe('local HTTP API', () => {
     expect(service.prDetail).toHaveBeenCalledOnce();
     expect(service.prDetail).toHaveBeenCalledWith(143);
   });
-  it('serves summary with CSRF token and no local diff endpoint', async () => {
-    const service = serviceFixture();
-    const port = await start(service);
-    const summary = await call(port, 'GET', '/api/summary');
-    expect(summary).toMatchObject({ status: 200, body: { branch: 'feature/review', csrfToken: expect.any(String) } });
-    expect((await call(port, 'GET', '/api/session')).body).toEqual({ csrfToken: summary.body.csrfToken });
-    expect((await call(port, 'GET', '/api/diff')).status).toBe(404);
-  });
-
   it('does not expose a server endpoint for local Viewed state', async () => {
     const service = serviceFixture();
     const port = await start(service);
@@ -108,54 +92,12 @@ describe('local HTTP API', () => {
     expect((await call(port, 'POST', '/api/prs/143/files/viewed', headers, { path: 'src/a.ts', viewed: true })).status).toBe(404);
   });
 
-  it('rejects foreign Host, Origin, CSRF token and malformed PR input', async () => {
-    const service = serviceFixture();
-    const port = await start(service);
-    const token = (await call(port, 'GET', '/api/summary')).body.csrfToken as string;
-    expect((await call(port, 'POST', '/api/push', { Host: 'evil.example', Origin: 'http://127.0.0.1:4317', 'X-CSRF-Token': token })).status).toBe(403);
-    expect((await call(port, 'POST', '/api/push', { Origin: 'https://evil.example', 'X-CSRF-Token': token })).status).toBe(403);
-    expect((await call(port, 'POST', '/api/push', { Origin: 'http://127.0.0.1:4317', 'X-CSRF-Token': 'wrong' })).status).toBe(403);
-    expect((await call(port, 'POST', '/api/pr', { Origin: 'http://127.0.0.1:4317', 'X-CSRF-Token': token, 'Content-Type': 'application/json' }, { title: '', body: '', draft: false, expectedHeadSha: head })).status).toBe(400);
-    expect(service.createPr).not.toHaveBeenCalled();
-  });
-
-  it('permits push only after checks', async () => {
-    const service = serviceFixture();
-    const port = await start(service);
-    const token = (await call(port, 'GET', '/api/summary')).body.csrfToken as string;
-    const headers = { Origin: 'http://127.0.0.1:4317', 'X-CSRF-Token': token, 'Content-Type': 'application/json' };
-    expect((await call(port, 'POST', '/api/fetch', headers)).status).toBe(404);
-    expect((await call(port, 'POST', '/api/push', headers, { expectedHeadSha: head })).status).toBe(200);
-    expect(service.push).toHaveBeenCalledWith(head);
-  });
-
-  it('validates JSON, content type and routes before running commands', async () => {
-    const service = serviceFixture();
-    const port = await start(service);
-    const token = (await call(port, 'GET', '/api/summary')).body.csrfToken as string;
-    const headers = { Origin: 'http://127.0.0.1:4318', 'X-CSRF-Token': token, 'Content-Type': 'application/json' };
-    expect((await call(port, 'GET', '/api/unknown')).status).toBe(404);
-    expect((await call(port, 'POST', '/api/push', headers, { expectedHeadSha: 'bad' })).status).toBe(400);
-    expect((await call(port, 'POST', '/api/pr', headers, { title: 'Title', body: '', draft: false, expectedHeadSha: head })).status).toBe(200);
-    expect((await call(port, 'POST', '/api/push', { ...headers, 'Content-Type': 'text/plain' })).status).toBe(415);
-    expect(service.push).not.toHaveBeenCalled();
-    expect(service.createPr).toHaveBeenCalledWith({ title: 'Title', body: '', draft: false, expectedHeadSha: head });
-  });
-
-  it('lists remote branches and validates remote PR creation', async () => {
+  it('rejects foreign Host, Origin and CSRF token', async () => {
     const service = serviceFixture();
     const port = await start(service);
     const token = (await call(port, 'GET', '/api/session')).body.csrfToken as string;
-    const headers = { Origin: 'http://127.0.0.1:4317', 'X-CSRF-Token': token, 'Content-Type': 'application/json' };
-    expect(await call(port, 'GET', '/api/branches')).toEqual({ status: 200, body: { branches: [{ name: 'feature/review', sha: head }] } });
-    expect((await call(port, 'POST', '/api/pr/remote', headers, { headBranch: 'feature/review', title: 'New PR', body: '', draft: true })).body).toEqual({ number: 2 });
-    expect(service.createRemotePr).toHaveBeenCalledWith({ headBranch: 'feature/review', title: 'New PR', body: '', draft: true });
-    for (const headBranch of ['', '-bad', 'feature..bad', 'feature//bad', 'feature/review.lock', 'x'.repeat(256)]) {
-      expect((await call(port, 'POST', '/api/pr/remote', headers, { headBranch, title: 'Title', body: '', draft: false })).status).toBe(400);
-    }
-    expect((await call(port, 'POST', '/api/pr/remote', headers, { headBranch: 'feature/review', title: '', body: '', draft: false })).status).toBe(400);
-    expect((await call(port, 'POST', '/api/pr/remote', headers, { headBranch: 'feature/review', title: 'Title', body: '', draft: 'false' })).status).toBe(400);
-    expect((await call(port, 'POST', '/api/pr/remote', { ...headers, 'X-CSRF-Token': 'wrong' }, { headBranch: 'feature/review', title: 'Title', body: '', draft: false })).status).toBe(403);
-    expect(service.createRemotePr).toHaveBeenCalledOnce();
+    expect((await call(port, 'POST', '/api/prs/143/merge', { Host: 'evil.example', Origin: 'http://127.0.0.1:4317', 'X-CSRF-Token': token })).status).toBe(403);
+    expect((await call(port, 'POST', '/api/prs/143/merge', { Origin: 'https://evil.example', 'X-CSRF-Token': token })).status).toBe(403);
+    expect((await call(port, 'POST', '/api/prs/143/merge', { Origin: 'http://127.0.0.1:4317', 'X-CSRF-Token': 'wrong' })).status).toBe(403);
   });
 });

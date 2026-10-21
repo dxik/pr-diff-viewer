@@ -89,7 +89,7 @@ function stateLabel(pr: PullRequestItem): string {
   return pr.isDraft && pr.state === "OPEN" ? "Draft" : pr.state.toLowerCase();
 }
 
-export default function PullRequestBrowser({ currentPrNumber, onMerged }: { currentPrNumber: number | null; onMerged?: () => void }) {
+export default function PullRequestBrowser() {
   const [items, setItems] = useState<PullRequestItem[] | null>(null);
   const [selectedNumber, setSelectedNumber] = useState<number | null>(null);
   const [detail, setDetail] = useState<PullRequestDetail | null>(null);
@@ -119,11 +119,11 @@ export default function PullRequestBrowser({ currentPrNumber, onMerged }: { curr
       .then(({ items: nextItems }) => {
         if (!isCurrent) return;
         setItems(nextItems);
-        setSelectedNumber(nextItems.find((pr) => pr.number === currentPrNumber)?.number ?? nextItems[0]?.number ?? null);
+        setSelectedNumber(nextItems[0]?.number ?? null);
       })
       .catch((failure: unknown) => { if (isCurrent) setListError((failure as Error).message); });
     return () => { isCurrent = false; };
-  }, [currentPrNumber, filter, listVersion]);
+  }, [filter, listVersion]);
 
   useEffect(() => {
     if (selectedNumber === null) return;
@@ -203,7 +203,6 @@ export default function PullRequestBrowser({ currentPrNumber, onMerged }: { curr
         body: JSON.stringify({ expectedHeadSha: mergeTarget.headRefOid }),
       });
       setMergeNotice(`PR #${mergeTarget.number} merged.`);
-      onMerged?.();
       setMergeTarget(null);
       setDetail(null);
       setFilter("Merged");

@@ -1,12 +1,5 @@
 import { describe, expect, it, vi } from 'vitest';
-import { execFile } from 'node:child_process';
-import { mkdtemp, rm } from 'node:fs/promises';
-import { tmpdir } from 'node:os';
-import { join } from 'node:path';
-import { promisify } from 'node:util';
-import { createGitService, createRunner, type RunCommand } from '../../server/git-service.js';
-
-const execFileAsync = promisify(execFile);
+import { createGitService, type RunCommand } from '../../server/git-service.js';
 
 const head = 'a'.repeat(40);
 const remote = 'b'.repeat(40);
@@ -135,21 +128,6 @@ describe('git service', () => {
     });
     await expect(service.prDetail(1)).resolves.toMatchObject({ comments: [] });
   });
-  it('returns branch metadata and no PR', async () => {
-    const { service, run } = fixture();
-    await expect(service.summary()).resolves.toEqual({ branch: 'feature/review', headSha: head, pr: null });
-    expect(run).not.toHaveBeenCalledWith('git', ['rev-list', '--count', 'origin/dev..HEAD']);
-  });
-
-  it('accepts a Git branch name containing #', async () => {
-    const branch = 'feat/#412-delete-account';
-    const { service } = fixture({
-      'git symbolic-ref --quiet --short HEAD': `${branch}\n`,
-      [`git ls-remote --heads origin refs/heads/${branch}`]: `${head}\trefs/heads/${branch}\n`,
-    });
-    await expect(service.pushStatus()).resolves.toEqual({ needsPush: false, branch, headSha: head, remoteSha: head });
-  });
-
   it('queries GitHub by selected PR state', async () => {
     const { service, run } = fixture({
       'gh pr list --state merged --search sort:updated-desc --limit 100 --json number,title,state,isDraft,headRefName,baseRefName,updatedAt,url,reviewDecision,statusCheckRollup': '[]',
@@ -158,120 +136,4 @@ describe('git service', () => {
     expect(run).toHaveBeenCalledWith('gh', ['pr', 'list', '--state', 'merged', '--search', 'sort:updated-desc', '--limit', '100', '--json', expect.any(String)]);
   });
 
-  it('lists GitHub branches across pages without using local git', async () => {
-    const { service, run } = fixture({
-      'gh api repos/{owner}/{repo}/branches?per_page=100 --paginate --slurp': JSON.stringify([
-        [{ name: 'dev', commit: { sha: head } }],
-        [{ name: 'feature/remote', commit: { sha: remote } }],
-      ]),
-    });
-    await expect(service.listBranches()).resolves.toEqual({ branches: [
-      { name: 'dev', sha: head }, { name: 'feature/remote', sha: remote },
-    ] });
-    expect(run).toHaveBeenCalledOnce();
-    expect(run).not.toHaveBeenCalledWith('git', expect.anything());
-  });
-
-  it('creates a draft PR from an existing remote branch without touching local git', async () => {
-    const { run, outputs } = fixture({
-      'gh api repos/{owner}/{repo}/branches?per_page=100 --paginate --slurp': JSON.stringify([[{ name: 'feature/remote', commit: { sha: remote } }]]),
-      'gh pr list --head feature/remote --base dev --state open --limit 1 --json number': '[]',
-      'gh pr create --base dev --head feature/remote --title New --body Body --draft': 'https://github.com/a/b/pull/144\n',
-      'gh pr view 144 --json number,title,body,url,state,isDraft,reviewDecision,statusCheckRollup': JSON.stringify({
-        number: 144, title: 'New', body: 'Body', url: 'https://github.com/a/b/pull/144', state: 'OPEN', isDraft: true, reviewDecision: null, statusCheckRollup: [],
-      }),
-    });
-    const creating = createGitService(async (command, args) => {
-      if (command === 'gh' && args[0] === 'pr' && args[1] === 'create') {
-        outputs['gh pr list --head feature/remote --base dev --state open --limit 1 --json number'] = '[{"number":144}]';
-      }
-      return run(command, args);
-    });
-    await expect(creating.createRemotePr({ headBranch: 'feature/remote', title: 'New', body: 'Body', draft: true })).resolves.toMatchObject({ number: 144, isDraft: true });
-    expect(run).toHaveBeenCalledWith('gh', ['pr', 'create', '--base', 'dev', '--head', 'feature/remote', '--title', 'New', '--body', 'Body', '--draft']);
-    expect(run).not.toHaveBeenCalledWith('git', expect.anything());
-  });
-
-  it('rejects a missing branch and an existing open PR for dev', async () => {
-    const { service, run } = fixture({
-      'gh api repos/{owner}/{repo}/branches?per_page=100 --paginate --slurp': JSON.stringify([[{ name: 'feature/remote', commit: { sha: remote } }]]),
-      'gh pr list --head feature/remote --base dev --state open --limit 1 --json number': '[{"number":143}]',
-      'gh pr view 143 --json number,title,body,url,state,isDraft,reviewDecision,statusCheckRollup': JSON.stringify({
-        number: 143, title: 'Existing', body: '', url: 'https://github.com/a/b/pull/143', state: 'OPEN', isDraft: false, statusCheckRollup: [],
-      }),
-    });
-    await expect(service.createRemotePr({ headBranch: 'missing', title: 'New', body: '', draft: false })).rejects.toMatchObject({ status: 400 });
-    await expect(service.createRemotePr({ headBranch: 'feature/remote', title: 'New', body: '', draft: false })).rejects.toMatchObject({ status: 409 });
-    expect(run).not.toHaveBeenCalledWith('gh', expect.arrayContaining(['create']));
-  });
-
-  it('reads PR review and CI data', async () => {
-    const { service } = fixture({
-      'gh pr list --head feature/review --state open --limit 1 --json number': '[{"number":143}]',
-      'gh pr view 143 --json number,title,body,url,state,isDraft,reviewDecision,statusCheckRollup': JSON.stringify({
-        number: 143, title: 'Review', body: 'Body', url: 'https://github.com/a/b/pull/143', state: 'OPEN', isDraft: false,
-        reviewDecision: 'APPROVED', statusCheckRollup: [{ name: 'test', status: 'COMPLETED', conclusion: 'SUCCESS' }],
-      }),
-    });
-    await expect(service.summary()).resolves.toMatchObject({ pr: { number: 143, reviewDecision: 'APPROVED', checks: [{ name: 'test', conclusion: 'SUCCESS' }] } });
-    await expect(service.createPr({ title: 'New', body: '', draft: false, expectedHeadSha: head })).rejects.toMatchObject({ status: 409 });
-  });
-
-  it('checks remote head before push and PR creation', async () => {
-    const { service, run } = fixture();
-    await expect(service.pushStatus()).resolves.toEqual({ needsPush: true, branch: 'feature/review', headSha: head, remoteSha: remote });
-    await expect(service.push(remote)).rejects.toMatchObject({ status: 409 });
-    await expect(service.createPr({ title: 'New', body: '', draft: false, expectedHeadSha: head })).rejects.toMatchObject({ status: 409 });
-    expect(run).not.toHaveBeenCalledWith('git', expect.arrayContaining(['push']));
-  });
-
-  it('reports an unpushed branch and rejects a detached HEAD', async () => {
-    const { service } = fixture({ 'git ls-remote --heads origin refs/heads/feature/review': '' });
-    await expect(service.pushStatus()).resolves.toMatchObject({ needsPush: true, remoteSha: null });
-    const detached = fixture({ 'git symbolic-ref --quiet --short HEAD': '' });
-    await expect(detached.service.summary()).rejects.toMatchObject({ status: 409 });
-  });
-
-  it('pushes HEAD and creates a draft PR after remote verification', async () => {
-    const { service, run, outputs } = fixture({
-      [`git push origin ${head}:refs/heads/feature/review`]: '',
-      'git branch --set-upstream-to=origin/feature/review feature/review': '',
-      'git ls-remote --heads origin refs/heads/feature/review': `${head}\trefs/heads/feature/review\n`,
-      'gh pr create --base dev --head feature/review --title New --body Body --draft': 'https://github.com/a/b/pull/144\n',
-      'gh pr view 144 --json number,title,body,url,state,isDraft,reviewDecision,statusCheckRollup': JSON.stringify({
-        number: 144, title: 'New', body: 'Body', url: 'https://github.com/a/b/pull/144', state: 'OPEN', isDraft: true, reviewDecision: '', statusCheckRollup: [],
-      }),
-    });
-    await expect(service.push(head)).resolves.toMatchObject({ remoteSha: head });
-    const creating = createGitService(async (command, args) => {
-      if (command === 'gh' && args[0] === 'pr' && args[1] === 'create') {
-        outputs['gh pr list --head feature/review --state open --limit 1 --json number'] = '[{"number":144}]';
-      }
-      return run(command, args);
-    });
-    await expect(creating.createPr({ title: 'New', body: 'Body', draft: true, expectedHeadSha: head })).resolves.toMatchObject({ number: 144, isDraft: true });
-    expect(run).toHaveBeenCalledWith('git', ['push', 'origin', `${head}:refs/heads/feature/review`]);
-    expect(run).toHaveBeenCalledWith('git', ['branch', '--set-upstream-to=origin/feature/review', 'feature/review']);
-    expect(run).toHaveBeenCalledWith('gh', ['pr', 'create', '--base', 'dev', '--head', 'feature/review', '--title', 'New', '--body', 'Body', '--draft']);
-  });
-
-  it('sets upstream tracking after pushing the verified commit', async () => {
-    const root = await mkdtemp(join(tmpdir(), 'pr-review-git-'));
-    const local = join(root, 'local');
-    const remoteRepo = join(root, 'remote.git');
-    const git = (args: string[], cwd = local) => execFileAsync('git', args, { cwd });
-    try {
-      await execFileAsync('git', ['init', '--bare', remoteRepo]);
-      await execFileAsync('git', ['init', '-b', 'feature/review', local]);
-      await git(['-c', 'user.name=Test', '-c', 'user.email=test@example.com', 'commit', '--allow-empty', '-m', 'test']);
-      await git(['remote', 'add', 'origin', remoteRepo]);
-      const { stdout: sha } = await git(['rev-parse', 'HEAD']);
-      const service = createGitService(createRunner(local));
-      await expect(service.push(sha.trim())).resolves.toMatchObject({ remoteSha: sha.trim() });
-      const { stdout: upstream } = await git(['rev-parse', '--abbrev-ref', '--symbolic-full-name', '@{upstream}']);
-      expect(upstream.trim()).toBe('origin/feature/review');
-    } finally {
-      await rm(root, { recursive: true, force: true });
-    }
-  });
 });
