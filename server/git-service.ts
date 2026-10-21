@@ -182,7 +182,7 @@ export function createGitService(run: RunCommand) {
   async function branchAndHead() {
     const branch = (await run('git', ['symbolic-ref', '--quiet', '--short', 'HEAD'])).trim();
     const headSha = (await run('git', ['rev-parse', 'HEAD'])).trim();
-    if (!branch || !/^[A-Za-z0-9][A-Za-z0-9._/-]*$/.test(branch)) {
+    if (!branch) {
       throw new ServiceError('Nhánh hiện tại không hợp lệ hoặc HEAD đang detached.', 409);
     }
     return { branch, headSha };

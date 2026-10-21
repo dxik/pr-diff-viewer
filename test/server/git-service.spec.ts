@@ -141,6 +141,15 @@ describe('git service', () => {
     expect(run).not.toHaveBeenCalledWith('git', ['rev-list', '--count', 'origin/dev..HEAD']);
   });
 
+  it('accepts a Git branch name containing #', async () => {
+    const branch = 'feat/#412-delete-account';
+    const { service } = fixture({
+      'git symbolic-ref --quiet --short HEAD': `${branch}\n`,
+      [`git ls-remote --heads origin refs/heads/${branch}`]: `${head}\trefs/heads/${branch}\n`,
+    });
+    await expect(service.pushStatus()).resolves.toEqual({ needsPush: false, branch, headSha: head, remoteSha: head });
+  });
+
   it('queries GitHub by selected PR state', async () => {
     const { service, run } = fixture({
       'gh pr list --state merged --search sort:updated-desc --limit 100 --json number,title,state,isDraft,headRefName,baseRefName,updatedAt,url,reviewDecision,statusCheckRollup': '[]',
