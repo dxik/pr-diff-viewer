@@ -14,6 +14,17 @@ afterEach(async () => {
 });
 
 describe('command runner', () => {
+  it('targets GitHub commands by repository without a local checkout', async () => {
+    directory = await mkdtemp(join(tmpdir(), 'pr-review-runner-'));
+    const executable = join(directory, 'gh');
+    await writeFile(executable, '#!/bin/sh\nprintf "%s\\n" "$@"\n');
+    await chmod(executable, 0o755);
+    process.env.PATH = `${directory}:${originalPath}`;
+    const run = createRunner(directory, 'PaulSklarXfit/psxfit365-monorepo');
+    await expect(run('gh', ['pr', 'list', '--state', 'open'])).resolves.toBe('pr\nlist\n--state\nopen\n-R\nPaulSklarXfit/psxfit365-monorepo\n');
+    await expect(run('gh', ['api', 'repos/{owner}/{repo}/branches'])).resolves.toBe('api\nrepos/PaulSklarXfit/psxfit365-monorepo/branches\n');
+    expect(() => createRunner(directory!, '../other')).toThrow('Invalid GitHub repository');
+  });
   it('classifies authentication, network and other command failures without exposing stderr', async () => {
     directory = await mkdtemp(join(tmpdir(), 'pr-review-runner-'));
     const executable = join(directory, 'git');

@@ -6,14 +6,13 @@ Local GitHub pull request viewer for reviewing commits, comments, checks, and fi
 
 - Node.js 24 and pnpm 10
 - Git and GitHub CLI (`gh`)
-- A local clone of the repository you want to review, with an `origin` remote
-- GitHub access to that repository (`gh auth login`)
+- GitHub access to the target repository (`gh auth login`)
 
 The app binds to `127.0.0.1`. Each person runs their own copy and uses their own GitHub permissions.
 
 ## Install and run
 
-Clone the target repository on your machine. Then clone this app and install its dependencies:
+Clone this app and install its dependencies:
 
 ```sh
 git clone https://github.com/dxik/pr-diff-viewer.git
@@ -22,7 +21,15 @@ pnpm install --frozen-lockfile
 gh auth login
 ```
 
-Set `PR_REVIEW_REPO_ROOT` to the absolute path of the target repository. For macOS or Linux:
+Run the app:
+
+```sh
+pnpm dev
+```
+
+The default target is `PaulSklarXfit/psxfit365-monorepo`. To use another repository, set `PR_REVIEW_REPO=owner/repo` (or `$env:PR_REVIEW_REPO = "owner/repo"` in PowerShell) before starting. No local checkout is required to browse, review, create a PR from a GitHub branch, or merge.
+
+To push and create a PR from the current local checkout, set `PR_REVIEW_REPO_ROOT` to its absolute path. For macOS or Linux:
 
 ```sh
 PR_REVIEW_REPO_ROOT="$HOME/code/psxfit365-monorepo" pnpm dev

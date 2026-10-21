@@ -9,10 +9,18 @@ export class ServiceError extends Error {
   constructor(message: string, public status = 500) { super(message); }
 }
 
-export function createRunner(repoRoot: string): RunCommand {
+export function createRunner(repoRoot: string, repo?: string): RunCommand {
+  if (repo && !/^[A-Za-z0-9][A-Za-z0-9-]*\/[A-Za-z0-9][A-Za-z0-9_.-]*$/.test(repo)) {
+    throw new Error('Invalid GitHub repository. Use owner/repo.');
+  }
   return async (command, args) => {
     try {
-      const { stdout } = await execFileAsync(command, args, {
+      const commandArgs = command === 'gh' && repo
+        ? args[0] === 'api'
+          ? args.map((arg) => arg.replaceAll('repos/{owner}/{repo}', `repos/${repo}`))
+          : [...args, '-R', repo]
+        : args;
+      const { stdout } = await execFileAsync(command, commandArgs, {
         cwd: repoRoot,
         encoding: 'utf8',
         maxBuffer: 16 * 1024 * 1024,

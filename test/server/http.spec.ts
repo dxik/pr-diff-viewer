@@ -27,8 +27,8 @@ function serviceFixture() {
   };
 }
 
-async function start(service: ReturnType<typeof serviceFixture>) {
-  server = createServer({ service: service as unknown as GitService });
+async function start(service: ReturnType<typeof serviceFixture>, repoRoot: string | null = '/tmp/pr-review-fixture') {
+  server = createServer({ service: service as unknown as GitService, repoRoot });
   await new Promise<void>((resolve) => server!.listen(0, '127.0.0.1', resolve));
   return (server.address() as { port: number }).port;
 }
@@ -46,6 +46,20 @@ function call(port: number, method: string, path: string, headers: Record<string
 }
 
 describe('local HTTP API', () => {
+  it('serves GitHub PRs without a local checkout and disables local actions', async () => {
+    const service = serviceFixture();
+    const port = await start(service, null);
+    const summary = await call(port, 'GET', '/api/summary');
+    expect(summary.body).toMatchObject({ branch: '', headSha: '', pr: null, csrfToken: expect.any(String) });
+    expect(service.summary).not.toHaveBeenCalled();
+    expect((await call(port, 'GET', '/api/prs')).status).toBe(200);
+    const headers = { Origin: 'http://127.0.0.1:4317', 'X-CSRF-Token': summary.body.csrfToken as string, 'Content-Type': 'application/json' };
+    expect((await call(port, 'GET', '/api/push-status')).status).toBe(409);
+    expect((await call(port, 'POST', '/api/push', headers, { expectedHeadSha: head })).status).toBe(409);
+    expect((await call(port, 'POST', '/api/pr', headers, { expectedHeadSha: head })).status).toBe(409);
+    expect(service.push).not.toHaveBeenCalled();
+    expect(service.createPr).not.toHaveBeenCalled();
+  });
   it('validates merge requests and requires the CSRF token', async () => {
     const service = serviceFixture();
     const port = await start(service);

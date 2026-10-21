@@ -83,7 +83,7 @@ export default function App() {
     setRemoteBranches(null);
     setBranchLoadFailed(false);
     setHeadBranch("");
-    setSource(summary && !summary.pr ? "local" : "remote");
+    setSource(summary?.branch && !summary.pr ? "local" : "remote");
     setShowCreateForm(true);
   }
 
@@ -121,7 +121,7 @@ export default function App() {
 
   async function checkPushStatus(event: FormEvent) {
     event.preventDefault();
-    if (!summary) return;
+    if (!summary?.branch) return;
     setIsBusy(true);
     setError("");
     try {
@@ -140,7 +140,7 @@ export default function App() {
   }
 
   async function pushAndCreate() {
-    if (!summary || !pushStatus) return;
+    if (!summary?.branch || !pushStatus) return;
     setIsBusy(true);
     setError("");
     try {
@@ -171,7 +171,7 @@ export default function App() {
             New pull request
           </button>
         </section>
-        {summary ? <div className="current-branch">Current branch: <strong>{summary.branch}</strong>{summary.pr ? <span> · PR #{summary.pr.number}</span> : null}</div> : null}
+        {summary?.branch ? <div className="current-branch">Current branch: <strong>{summary.branch}</strong>{summary.pr ? <span> · PR #{summary.pr.number}</span> : null}</div> : null}
         {error && !showCreateForm ? <div className="alert alert-error" role="alert">{error}<button onClick={() => setError("")} aria-label="Dismiss error">×</button></div> : null}
         {notice ? <div className="alert alert-success" role="status">{notice}<button onClick={() => setNotice("")} aria-label="Dismiss notice">×</button></div> : null}
         <PullRequestBrowser key={browserVersion} currentPrNumber={summary?.pr?.number ?? null} onMerged={() => { void refreshSummary().catch((failure: unknown) => setError((failure as Error).message)); }} />
@@ -200,7 +200,7 @@ export default function App() {
                 <span className="eyebrow">NEW PULL REQUEST</span>
                 <h2 id="create-heading">Create pull request</h2>
                 <p>Open a pull request into <strong>dev</strong>.</p>
-                {summary && !summary.pr ? <div className="source-options" aria-label="Head source">
+                {summary?.branch && !summary.pr ? <div className="source-options" aria-label="Head source">
                   <button type="button" className={source === "local" ? "active" : ""} aria-pressed={source === "local"} onClick={() => { setSource("local"); setError(""); }}>Current checkout</button>
                   <button type="button" className={source === "remote" ? "active" : ""} aria-pressed={source === "remote"} onClick={() => { setSource("remote"); setError(""); }}>GitHub branch</button>
                 </div> : null}

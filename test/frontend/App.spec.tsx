@@ -19,6 +19,21 @@ function mockApi(responses: Record<string, unknown>) {
 afterEach(() => { cleanup(); vi.unstubAllGlobals(); });
 
 describe("PR review", () => {
+  it("uses GitHub branches when no local checkout is configured", async () => {
+    const fetchMock = mockApi({
+      "GET /api/summary": { branch: "", headSha: "", pr: null, csrfToken: "csrf-test" },
+      "GET /api/branches": { branches: [{ name: "dev", sha: summary.headSha }, { name: "feature/next", sha: summary.headSha }] },
+      "POST /api/pr/remote": { url: "https://github.com/o/r/pull/144" },
+    });
+    render(<App />);
+    fireEvent.click(await screen.findByRole("button", { name: /New pull request/i }));
+    expect(screen.queryByText("Current branch:")).toBeNull();
+    expect(screen.queryByRole("button", { name: "Current checkout" })).toBeNull();
+    fireEvent.change(await screen.findByLabelText("Head branch"), { target: { value: "feature/next" } });
+    fireEvent.change(screen.getByLabelText("Title"), { target: { value: "Next feature" } });
+    fireEvent.click(screen.getByRole("button", { name: "Create pull request" }));
+    await waitFor(() => expect(fetchMock).toHaveBeenCalledWith("/api/pr/remote", expect.objectContaining({ method: "POST" })));
+  });
   it("shows GitHub PRs even when the local branch is unavailable", async () => {
     mockApi({
       "GET /api/summary": new Error("Local branch unavailable"),
