@@ -3,7 +3,7 @@ import { randomBytes, timingSafeEqual } from 'node:crypto';
 import { readFile } from 'node:fs/promises';
 import { extname, resolve, sep } from 'node:path';
 import { fileURLToPath } from 'node:url';
-import { createGitService, createRunner, ServiceError, type GitService, type PrListState } from './git-service.js';
+import { createGitService, createRunner, mergeMethods, ServiceError, type GitService, type MergeMethod, type PrListState } from './git-service.js';
 
 const appRoot = resolve(fileURLToPath(new URL('.', import.meta.url)), '..');
 const mimeTypes: Record<string, string> = {
@@ -67,6 +67,8 @@ export function createServer(options: { service?: GitService; staticDir?: string
             throw new ServiceError('Trạng thái PR không hợp lệ.', 400);
           }
           sendJson(response, 200, await service.listPrs(state as PrListState));
+        } else if (request.method === 'GET' && url.pathname === '/api/merge-options') {
+          sendJson(response, 200, await service.mergeOptions());
         } else if (request.method === 'POST' && /^\/api\/prs\/[^/]+\/merge$/.test(url.pathname)) {
           const rawNumber = url.pathname.split('/')[3];
           const number = Number(rawNumber);
@@ -77,7 +79,10 @@ export function createServer(options: { service?: GitService; staticDir?: string
           if (typeof body.expectedHeadSha !== 'string' || !/^[0-9a-f]{40,64}$/.test(body.expectedHeadSha)) {
             throw new ServiceError('HEAD SHA không hợp lệ.', 400);
           }
-          sendJson(response, 200, await service.mergePr(number, body.expectedHeadSha));
+          if (typeof body.method !== 'string' || !mergeMethods.includes(body.method as MergeMethod)) {
+            throw new ServiceError('Cách merge không hợp lệ.', 400);
+          }
+          sendJson(response, 200, await service.mergePr(number, body.expectedHeadSha, body.method as MergeMethod));
         } else if (request.method === 'GET' && url.pathname.startsWith('/api/prs/')) {
           const match = /^\/api\/prs\/([^/]+)(?:\/(files|commits))?$/.exec(url.pathname);
           const rawNumber = match?.[1] ?? '';

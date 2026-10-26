@@ -14,6 +14,7 @@ function mockApi(responses: Record<string, unknown>) {
     const path = String(input);
     let response = responses[`${init?.method ?? "GET"} ${path}`] ?? responses[path];
     if (path === "/api/session" && response === undefined) response = { csrfToken: "test-csrf" };
+    if (path === "/api/merge-options" && response === undefined) response = { methods: ["merge", "squash", "rebase"] };
     if (response === undefined && path.startsWith("/api/prs?state=")) {
       const source = responses["/api/prs"];
       if (source instanceof Error) response = source;
@@ -37,17 +38,46 @@ describe("pull request browser", () => {
     const head = "a".repeat(40);
     const fetchMock = mockApi({
       "/api/prs": { items: [items[0], { ...items[0], state: "MERGED" }] },
-      "/api/prs/143": { pr: { ...items[0], headRefOid: head, body: "", checks: [] }, comments: [] },
+      "/api/prs/143": { pr: { ...items[0], mergeable: "MERGEABLE", headRefOid: head, body: "", checks: [] }, comments: [] },
       "POST /api/prs/143/merge": { number: 143 },
     });
     render(<PullRequestBrowser />);
     fireEvent.click(await screen.findByRole("button", { name: "Merge" }));
     expect(screen.getByRole("dialog", { name: "Merge pull request" })).toBeTruthy();
+    expect(await screen.findByLabelText("Merge method")).toBeTruthy();
+    expect(screen.getByRole("option", { name: "Squash and merge" })).toBeTruthy();
+    expect(screen.getByRole("option", { name: "Rebase and merge" })).toBeTruthy();
+    fireEvent.change(screen.getByLabelText("Merge method"), { target: { value: "squash" } });
     expect(fetchMock).not.toHaveBeenCalledWith("/api/prs/143/merge", expect.anything());
     fireEvent.click(screen.getByRole("button", { name: "Confirm merge" }));
-    await waitFor(() => expect(fetchMock).toHaveBeenCalledWith("/api/prs/143/merge", expect.objectContaining({ method: "POST", body: JSON.stringify({ expectedHeadSha: head }) })));
+    await waitFor(() => expect(fetchMock).toHaveBeenCalledWith("/api/prs/143/merge", expect.objectContaining({ method: "POST", body: JSON.stringify({ expectedHeadSha: head, method: "squash" }) })));
     expect(await screen.findByText("PR #143 merged.")).toBeTruthy();
     expect(screen.getByRole("button", { name: "Merged" })).toHaveAttribute("aria-pressed", "true");
+  });
+
+  it("shows conflicts in the list and detail and disables merge", async () => {
+    const conflicted = { ...items[0], mergeable: "CONFLICTING" };
+    mockApi({
+      "/api/prs": { items: [conflicted] },
+      "/api/prs/143": { pr: { ...conflicted, headRefOid: "a".repeat(40), body: "", checks: [] }, comments: [] },
+    });
+    render(<PullRequestBrowser />);
+    expect(await screen.findByText("Merge conflicts — resolve on GitHub")).toBeTruthy();
+    expect(screen.getByRole("button", { name: "Merge" })).toBeDisabled();
+    expect(screen.getByRole("button", { name: /PR #143 Improve training plan/i })).toHaveTextContent("Merge conflicts");
+  });
+
+  it("offers only merge methods enabled by GitHub", async () => {
+    mockApi({
+      "/api/prs": { items: [items[0]] },
+      "/api/prs/143": { pr: { ...items[0], mergeable: "MERGEABLE", headRefOid: "a".repeat(40), body: "", checks: [] }, comments: [] },
+      "/api/merge-options": { methods: ["squash"] },
+    });
+    render(<PullRequestBrowser />);
+    fireEvent.click(await screen.findByRole("button", { name: "Merge" }));
+    const select = await screen.findByLabelText("Merge method");
+    expect(select).toHaveValue("squash");
+    expect(screen.getAllByRole("option")).toHaveLength(1);
   });
 
   it("does not offer merge for a draft or merged PR", async () => {
@@ -71,6 +101,7 @@ describe("pull request browser", () => {
     fireEvent.click(screen.getByRole("button", { name: "Cancel" }));
     expect(fetchMock).not.toHaveBeenCalledWith("/api/prs/143/merge", expect.anything());
     fireEvent.click(screen.getByRole("button", { name: "Merge" }));
+    await screen.findByLabelText("Merge method");
     fireEvent.click(screen.getByRole("button", { name: "Confirm merge" }));
     expect(await screen.findByRole("alert")).toHaveTextContent("PR head changed");
     expect(screen.getByRole("dialog", { name: "Merge pull request" })).toBeTruthy();

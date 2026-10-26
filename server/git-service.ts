@@ -10,6 +10,9 @@ export class ServiceError extends Error {
 }
 
 export const repository = 'PaulSklarXfit/psxfit365-monorepo';
+export const mergeMethods = ['merge', 'squash', 'rebase'] as const;
+export type MergeMethod = typeof mergeMethods[number];
+export type Mergeability = 'MERGEABLE' | 'CONFLICTING' | 'UNKNOWN';
 
 export function createRunner(): RunCommand {
   return async (command, args) => {
@@ -42,6 +45,7 @@ export type PrListItem = {
   number: number; title: string; state: string; isDraft: boolean;
   headRefName: string; baseRefName: string; updatedAt: string; url: string;
   reviewDecision: string | null; checkStatus: 'success' | 'failure' | 'pending' | 'none';
+  mergeable: Mergeability;
 };
 export type PrListState = 'open' | 'merged' | 'closed' | 'all';
 
@@ -50,7 +54,7 @@ export type PrComment = {
   createdAt: string; url: string; path?: string; line?: number | null;
 };
 
-const listFields = 'number,title,state,isDraft,headRefName,baseRefName,updatedAt,url,reviewDecision,statusCheckRollup';
+const listFields = 'number,title,state,isDraft,headRefName,baseRefName,updatedAt,url,reviewDecision,statusCheckRollup,mergeable';
 const detailFields = `${listFields},body,comments,reviews,headRefOid`;
 
 function checkStatus(checks: Record<string, unknown>[]): PrListItem['checkStatus'] {
@@ -65,12 +69,13 @@ function checkStatus(checks: Record<string, unknown>[]): PrListItem['checkStatus
 
 function normalizePr(raw: Record<string, unknown>): PrListItem {
   const checks = Array.isArray(raw.statusCheckRollup) ? raw.statusCheckRollup as Record<string, unknown>[] : [];
+  const mergeable = raw.mergeable === 'MERGEABLE' || raw.mergeable === 'CONFLICTING' ? raw.mergeable : 'UNKNOWN';
   return {
     number: Number(raw.number), title: String(raw.title ?? ''), state: String(raw.state ?? ''),
     isDraft: Boolean(raw.isDraft), headRefName: String(raw.headRefName ?? ''),
     baseRefName: String(raw.baseRefName ?? ''), updatedAt: String(raw.updatedAt ?? ''),
     url: String(raw.url ?? ''), reviewDecision: raw.reviewDecision ? String(raw.reviewDecision) : null,
-    checkStatus: checkStatus(checks),
+    checkStatus: checkStatus(checks), mergeable,
   };
 }
 
@@ -157,16 +162,29 @@ export function createGitService(run: RunCommand) {
       comments: [...comments].sort((left, right) => left.createdAt.localeCompare(right.createdAt)),
     };
   }
-  async function mergePr(number: number, expectedHeadSha: string) {
-    const raw = JSON.parse(await run('gh', ['pr', 'view', String(number), '--json', 'state,isDraft,headRefOid'])) as Record<string, unknown>;
+
+  async function mergeOptions() {
+    const settings = JSON.parse(await run('gh', ['api', 'repos/{owner}/{repo}'])) as Record<string, unknown>;
+    return { methods: mergeMethods.filter((method) => {
+      if (method === 'merge') return settings.allow_merge_commit === true;
+      if (method === 'squash') return settings.allow_squash_merge === true;
+      return settings.allow_rebase_merge === true;
+    }) };
+  }
+
+  async function mergePr(number: number, expectedHeadSha: string, method: MergeMethod) {
+    const raw = JSON.parse(await run('gh', ['pr', 'view', String(number), '--json', 'state,isDraft,headRefOid,mergeable'])) as Record<string, unknown>;
     if (raw.state !== 'OPEN' || raw.isDraft === true) throw new ServiceError('PR không còn sẵn sàng để merge. Tải lại trang.', 409);
     if (raw.headRefOid !== expectedHeadSha) throw new ServiceError('Commit của PR đã thay đổi. Tải lại diff trước khi merge.', 409);
-    const result = JSON.parse(await run('gh', ['api', '-X', 'PUT', `repos/{owner}/{repo}/pulls/${number}/merge`, '-f', `sha=${expectedHeadSha}`, '-f', 'merge_method=merge'])) as { merged?: boolean };
+    if (raw.mergeable === 'CONFLICTING') throw new ServiceError('PR có merge conflict. Hãy giải quyết conflict trên GitHub trước.', 409);
+    const { methods } = await mergeOptions();
+    if (!methods.includes(method)) throw new ServiceError('Cách merge này không được bật cho repository.', 409);
+    const result = JSON.parse(await run('gh', ['api', '-X', 'PUT', `repos/{owner}/{repo}/pulls/${number}/merge`, '-f', `sha=${expectedHeadSha}`, '-f', `merge_method=${method}`])) as { merged?: boolean };
     if (!result.merged) throw new ServiceError('GitHub chưa merge PR. Tải lại trạng thái rồi thử lại.', 409);
     return { number };
   }
 
-  return { listPrs, prDetail, prFiles, prCommits, mergePr };
+  return { listPrs, prDetail, prFiles, prCommits, mergeOptions, mergePr };
 }
 
 export type GitService = ReturnType<typeof createGitService>;

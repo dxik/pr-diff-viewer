@@ -11,6 +11,14 @@ type PullRequestItem = {
   url: string;
   reviewDecision: string | null;
   checkStatus: "success" | "failure" | "pending" | "none";
+  mergeable: "MERGEABLE" | "CONFLICTING" | "UNKNOWN";
+};
+
+type MergeMethod = "merge" | "squash" | "rebase";
+const mergeMethodLabels: Record<MergeMethod, string> = {
+  merge: "Create a merge commit",
+  squash: "Squash and merge",
+  rebase: "Rebase and merge",
 };
 
 type PullRequestDetail = PullRequestItem & {
@@ -105,6 +113,8 @@ export default function PullRequestBrowser() {
   const [detailError, setDetailError] = useState("");
   const [copyStatus, setCopyStatus] = useState<{ number: number; result: "copied" | "failed" } | null>(null);
   const [mergeTarget, setMergeTarget] = useState<PullRequestDetail | null>(null);
+  const [availableMergeMethods, setAvailableMergeMethods] = useState<MergeMethod[] | null>(null);
+  const [mergeMethod, setMergeMethod] = useState<MergeMethod | null>(null);
   const [mergeError, setMergeError] = useState("");
   const [mergeNotice, setMergeNotice] = useState("");
   const [isMerging, setIsMerging] = useState(false);
@@ -161,6 +171,19 @@ export default function PullRequestBrowser() {
     return () => { isCurrent = false; };
   }, [selectedNumber, tab]);
 
+  useEffect(() => {
+    if (!mergeTarget) return;
+    let isCurrent = true;
+    getJson<{ methods: MergeMethod[] }>("/api/merge-options")
+      .then(({ methods }) => {
+        if (!isCurrent) return;
+        setAvailableMergeMethods(methods);
+        setMergeMethod(methods[0] ?? null);
+      })
+      .catch((failure: unknown) => { if (isCurrent) setMergeError((failure as Error).message); });
+    return () => { isCurrent = false; };
+  }, [mergeTarget]);
+
   const visibleItems = items ?? [];
   const selectedItem = items?.find((pr) => pr.number === selectedNumber);
   let copyButtonText = "Copy PR URL";
@@ -182,6 +205,13 @@ export default function PullRequestBrowser() {
     setMergeTarget(null);
   }
 
+  function openMerge(pr: PullRequestDetail) {
+    setMergeError("");
+    setAvailableMergeMethods(null);
+    setMergeMethod(null);
+    setMergeTarget(pr);
+  }
+
   async function copyPrUrl(number: number, url: string) {
     try {
       await navigator.clipboard.writeText(url);
@@ -192,7 +222,7 @@ export default function PullRequestBrowser() {
   }
 
   async function confirmMerge() {
-    if (!mergeTarget || isMerging) return;
+    if (!mergeTarget || !mergeMethod || isMerging) return;
     setIsMerging(true);
     setMergeError("");
     try {
@@ -200,7 +230,7 @@ export default function PullRequestBrowser() {
       await getJson(`/api/prs/${mergeTarget.number}/merge`, {
         method: "POST",
         headers: { "X-CSRF-Token": csrfToken, "Content-Type": "application/json" },
-        body: JSON.stringify({ expectedHeadSha: mergeTarget.headRefOid }),
+        body: JSON.stringify({ expectedHeadSha: mergeTarget.headRefOid, method: mergeMethod }),
       });
       setMergeNotice(`PR #${mergeTarget.number} merged.`);
       setMergeTarget(null);
@@ -252,7 +282,7 @@ export default function PullRequestBrowser() {
             <div className="pr-list">
               {visibleItems.map((pr) => <button type="button" className={`pr-list-item ${selectedNumber === pr.number ? "selected" : ""}`} key={pr.number} aria-current={selectedNumber === pr.number ? "true" : undefined} aria-label={`PR #${pr.number} ${pr.title}`} onClick={() => selectPr(pr.number)}>
                 <span className="pr-list-title"><span className="pr-number">#{pr.number}</span> {pr.title}</span>
-                <span className="pr-list-meta"><span>{pr.headRefName} → {pr.baseRefName}</span><span className={`pill ${pr.state.toLowerCase()}`}>{stateLabel(pr)}</span><span>Review: {pr.reviewDecision ?? "pending"}</span><span className={`check-indicator ${pr.checkStatus}`}>Checks: {pr.checkStatus}</span></span>
+                <span className="pr-list-meta"><span>{pr.headRefName} → {pr.baseRefName}</span><span className={`pill ${pr.state.toLowerCase()}`}>{stateLabel(pr)}</span><span>Review: {pr.reviewDecision ?? "pending"}</span><span className={`check-indicator ${pr.checkStatus}`}>Checks: {pr.checkStatus}</span>{pr.state === "OPEN" && (pr.mergeable === "CONFLICTING" || (detail?.number === pr.number && detail.mergeable === "CONFLICTING")) ? <span className="conflict-indicator">Merge conflicts</span> : null}</span>
               </button>)}
             </div>
           )}
@@ -260,8 +290,8 @@ export default function PullRequestBrowser() {
         <div className="pr-detail-panel">
           {selectedNumber === null ? <p className="pr-message">Select a pull request to see its status and comments.</p> : detailError ? <p role="alert" className="pr-message">{detailError}</p> : !detail || detail.number !== selectedNumber ? <p className="pr-message">Loading PR details…</p> : (
             <>
-              <div className="pr-detail-header"><div><span className="eyebrow">PR #{detail.number}</span><h3>{detail.title}</h3></div><div className="pr-detail-actions">{githubUrl(detail.url) ? <button type="button" onClick={() => void copyPrUrl(detail.number, detail.url)}>{copyButtonText}</button> : null}{detail.state === "OPEN" && !detail.isDraft && detail.headRefOid ? <button type="button" className="button button-primary" onClick={() => { setMergeError(""); setMergeTarget(detail); }}>Merge</button> : null}</div></div>
-              <div className="pr-detail-status"><span className={`pill ${detail.state.toLowerCase()}`}>{stateLabel(detail)}</span><span>Review: <strong>{detail.reviewDecision ?? "Pending"}</strong></span><span className={`check-indicator ${detail.checkStatus}`}>Checks: {detail.checkStatus}</span></div>
+              <div className="pr-detail-header"><div><span className="eyebrow">PR #{detail.number}</span><h3>{detail.title}</h3></div><div className="pr-detail-actions">{githubUrl(detail.url) ? <button type="button" onClick={() => void copyPrUrl(detail.number, detail.url)}>{copyButtonText}</button> : null}{detail.state === "OPEN" && !detail.isDraft && detail.headRefOid ? <button type="button" className="button button-primary" disabled={detail.mergeable === "CONFLICTING"} onClick={() => openMerge(detail)}>Merge</button> : null}</div></div>
+              <div className="pr-detail-status"><span className={`pill ${detail.state.toLowerCase()}`}>{stateLabel(detail)}</span><span>Review: <strong>{detail.reviewDecision ?? "Pending"}</strong></span><span className={`check-indicator ${detail.checkStatus}`}>Checks: {detail.checkStatus}</span>{detail.state === "OPEN" ? <span className={detail.mergeable === "CONFLICTING" ? "conflict-indicator" : ""}>{detail.mergeable === "CONFLICTING" ? "Merge conflicts — resolve on GitHub" : detail.mergeable === "MERGEABLE" ? "No merge conflicts" : "Checking merge conflicts…"}</span> : null}</div>
               {detail.body ? <p className="pr-detail-body">{detail.body}</p> : null}
               <div className="pr-detail-tabs" role="tablist" aria-label="PR detail">
                 {(["Conversation", "Commits", "Files changed"] as const).map((option) => <button key={option} type="button" role="tab" aria-selected={tab === option} onClick={() => setTab(option)}>{option}</button>)}
@@ -312,8 +342,9 @@ export default function PullRequestBrowser() {
       {mergeTarget ? <div className="modal-backdrop" role="presentation"><div className="modal" role="dialog" aria-modal="true" aria-labelledby="merge-heading">
         <h2 id="merge-heading">Merge pull request</h2>
         <p>Merge PR #{mergeTarget.number} into <strong>{mergeTarget.baseRefName}</strong>? GitHub will check whether the PR can be merged.</p>
+        {availableMergeMethods === null && !mergeError ? <p>Loading merge methods…</p> : availableMergeMethods?.length === 0 ? <p>No merge methods are enabled for this repository.</p> : availableMergeMethods ? <><label htmlFor="merge-method">Merge method</label><select id="merge-method" value={mergeMethod ?? ""} onChange={(event) => setMergeMethod(event.target.value as MergeMethod)}>{availableMergeMethods.map((method) => <option value={method} key={method}>{mergeMethodLabels[method]}</option>)}</select></> : null}
         {mergeError ? <div className="alert alert-error" role="alert">{mergeError}</div> : null}
-        <div className="modal-actions"><button type="button" className="button button-secondary" disabled={isMerging} onClick={() => setMergeTarget(null)}>Cancel</button><button type="button" className="button button-primary" disabled={isMerging} onClick={() => void confirmMerge()}>{isMerging ? "Merging…" : "Confirm merge"}</button></div>
+        <div className="modal-actions"><button type="button" className="button button-secondary" disabled={isMerging} onClick={() => setMergeTarget(null)}>Cancel</button><button type="button" className="button button-primary" disabled={isMerging || !mergeMethod} onClick={() => void confirmMerge()}>{isMerging ? "Merging…" : "Confirm merge"}</button></div>
       </div></div> : null}
     </section>
   );

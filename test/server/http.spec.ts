@@ -17,6 +17,7 @@ function serviceFixture() {
     prDetail: vi.fn(async (number: number) => ({ pr: { number }, comments: [] })),
     prFiles: vi.fn(async (number: number) => ({ files: [{ path: 'src/a.ts', number }] })),
     prCommits: vi.fn(async (number: number) => ({ commits: [{ sha: head, number }] })),
+    mergeOptions: vi.fn(async () => ({ methods: ['merge', 'squash', 'rebase'] })),
     mergePr: vi.fn(async (number: number) => ({ number })),
   };
 }
@@ -58,11 +59,14 @@ describe('local HTTP API', () => {
     const port = await start(service);
     const token = (await call(port, 'GET', '/api/session')).body.csrfToken as string;
     const headers = { Origin: 'http://127.0.0.1:4317', 'X-CSRF-Token': token, 'Content-Type': 'application/json' };
-    expect((await call(port, 'POST', '/api/prs/143/merge', headers, { expectedHeadSha: head })).body).toEqual({ number: 143 });
-    expect(service.mergePr).toHaveBeenCalledWith(143, head);
-    expect((await call(port, 'POST', '/api/prs/143/merge', { ...headers, 'X-CSRF-Token': 'wrong' }, { expectedHeadSha: head })).status).toBe(403);
-    expect((await call(port, 'POST', '/api/prs/0/merge', headers, { expectedHeadSha: head })).status).toBe(400);
-    expect((await call(port, 'POST', '/api/prs/143/merge', headers, { expectedHeadSha: 'bad' })).status).toBe(400);
+    expect((await call(port, 'GET', '/api/merge-options')).body).toEqual({ methods: ['merge', 'squash', 'rebase'] });
+    expect((await call(port, 'POST', '/api/prs/143/merge', headers, { expectedHeadSha: head, method: 'squash' })).body).toEqual({ number: 143 });
+    expect(service.mergePr).toHaveBeenCalledWith(143, head, 'squash');
+    expect((await call(port, 'POST', '/api/prs/143/merge', { ...headers, 'X-CSRF-Token': 'wrong' }, { expectedHeadSha: head, method: 'merge' })).status).toBe(403);
+    expect((await call(port, 'POST', '/api/prs/0/merge', headers, { expectedHeadSha: head, method: 'merge' })).status).toBe(400);
+    expect((await call(port, 'POST', '/api/prs/143/merge', headers, { expectedHeadSha: 'bad', method: 'merge' })).status).toBe(400);
+    expect((await call(port, 'POST', '/api/prs/143/merge', headers, { expectedHeadSha: head, method: 'invalid' })).status).toBe(400);
+    expect((await call(port, 'POST', '/api/prs/143/merge', headers, { expectedHeadSha: head })).status).toBe(400);
     expect(service.mergePr).toHaveBeenCalledOnce();
   });
   it('lists PRs and validates PR detail number', async () => {

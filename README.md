@@ -21,7 +21,7 @@ pnpm dev
 
 Open <http://127.0.0.1:4317>. The API runs on `127.0.0.1:4318`. For a local production build, run `pnpm build` followed by `pnpm start`, then open <http://127.0.0.1:4318>.
 
-The app only reads PRs from the fixed repository and offers merge where GitHub permits it. It does not create PRs or use the current local branch.
+The app only reads PRs from the fixed repository and offers the merge methods enabled in GitHub: merge commit, squash, or rebase. It shows merge conflicts when GitHub reports them and disables merge for a conflicting PR. It does not create PRs or use the current local branch.
 
 ## Checks
 

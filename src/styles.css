@@ -839,6 +839,7 @@ code {
 .check-indicator.failure { color: #c95569; }
 .check-indicator.pending { color: #ad7e23; }
 .check-indicator.none { color: #8b98aa; }
+.conflict-indicator { color: #c95569; font-weight: 700; }
 .pr-detail-panel { padding: 20px 24px; min-width: 0; }
 .pr-message { padding: 20px; margin: 0; color: #7e8da4; font-size: 13px; }
 .pr-detail-header { display: flex; justify-content: space-between; gap: 16px; }

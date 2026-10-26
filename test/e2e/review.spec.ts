@@ -90,6 +90,7 @@ test('confirms merge for an existing PR', async ({ page }) => {
     pr: { ...item, headRefOid: headSha, body: '', checks: [] }, comments: [],
   } }));
   await page.route('**/api/session', (route) => route.fulfill({ json: { csrfToken: 'test-csrf' } }));
+  await page.route('**/api/merge-options', (route) => route.fulfill({ json: { methods: ['merge', 'squash', 'rebase'] } }));
   await page.route('**/api/prs/143/merge', (route) => {
     mergeBody = route.request().postDataJSON();
     return route.fulfill({ json: { number: 143 } });
@@ -98,8 +99,25 @@ test('confirms merge for an existing PR', async ({ page }) => {
   await page.goto('/');
   await page.getByRole('button', { name: 'Merge', exact: true }).click();
   await expect(page.getByRole('dialog', { name: 'Merge pull request' })).toBeVisible();
+  await page.getByLabel('Merge method').selectOption('rebase');
   expect(mergeBody).toBeUndefined();
   await page.getByRole('button', { name: 'Confirm merge' }).click();
   await expect(page.getByText('PR #143 merged.')).toBeVisible();
-  expect(mergeBody).toEqual({ expectedHeadSha: headSha });
+  expect(mergeBody).toEqual({ expectedHeadSha: headSha, method: 'rebase' });
+});
+
+test('shows merge conflicts and disables merge', async ({ page }) => {
+  const item = { number: 197, title: 'Conflicting PR', state: 'OPEN', isDraft: false,
+    headRefName: 'feature/conflict', baseRefName: 'dev', updatedAt: '',
+    url: 'https://github.com/PaulSklarXfit/psxfit365-monorepo/pull/197',
+    reviewDecision: null, checkStatus: 'none', mergeable: 'UNKNOWN' };
+  await page.route('**/api/prs?state=*', (route) => route.fulfill({ json: { items: [item] } }));
+  await page.route('**/api/prs/197', (route) => route.fulfill({ json: {
+    pr: { ...item, mergeable: 'CONFLICTING', headRefOid: headSha, body: '', checks: [] }, comments: [],
+  } }));
+
+  await page.goto('/');
+  await expect(page.getByText('Merge conflicts — resolve on GitHub')).toBeVisible();
+  await expect(page.getByRole('button', { name: 'Merge', exact: true })).toBeDisabled();
+  await expect(page.getByRole('button', { name: 'PR #197 Conflicting PR' })).toContainText('Merge conflicts');
 });
