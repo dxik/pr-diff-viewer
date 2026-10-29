@@ -72,6 +72,11 @@ export function createPrMetadataService(run: RunCommand) {
     return { options: values };
   }
 
+  async function createLabel(name: string, color: string) {
+    const result = parseObject(await run('gh', ['api', '-X', 'POST', 'repos/{owner}/{repo}/labels', '-f', `name=${name}`, '-f', `color=${color}`]));
+    return { name: String(result.name ?? name) };
+  }
+
   async function update(number: number, field: MetadataField, action: MetadataAction, value: string) {
     if (field === 'draft') {
       await run('gh', ['pr', 'ready', String(number), ...(action === 'add' ? ['--undo'] : [])]);
@@ -92,5 +97,5 @@ export function createPrMetadataService(run: RunCommand) {
     return { ok: true };
   }
 
-  return { metadata, projects, options, update };
+  return { metadata, projects, options, update, createLabel };
 }

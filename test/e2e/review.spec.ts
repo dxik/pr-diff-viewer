@@ -159,3 +159,37 @@ test('updates labels and draft status from the PR sidebar', async ({ page }) => 
   await expect(page.getByRole('button', { name: 'Mark ready for review' })).toBeVisible();
   await expect(page.getByRole('button', { name: 'Merge', exact: true })).toHaveCount(0);
 });
+
+test('creates a label and applies it to the selected PR', async ({ page }) => {
+  const item = { number: 143, title: 'Review example', state: 'OPEN', isDraft: false,
+    headRefName: 'feature/review', baseRefName: 'dev', updatedAt: '',
+    url: 'https://github.com/PaulSklarXfit/psxfit365-monorepo/pull/143',
+    reviewDecision: null, checkStatus: 'none', mergeable: 'MERGEABLE' };
+  let labels: string[] = [];
+  let created: unknown;
+  await page.route('**/api/prs?state=*', (route) => route.fulfill({ json: { items: [item] } }));
+  await page.route('**/api/prs/143', (route) => route.fulfill({ json: { pr: { ...item, headRefOid: headSha, body: '', checks: [] }, comments: [] } }));
+  await page.route('**/api/session', (route) => route.fulfill({ json: { csrfToken: 'test-csrf' } }));
+  await page.route('**/api/prs/143/metadata/options?field=labels', (route) => route.fulfill({ json: { options: ['bug'] } }));
+  await page.route('**/api/labels', (route) => {
+    created = route.request().postDataJSON();
+    return route.fulfill({ status: 201, json: { name: 'dev-dungtran' } });
+  });
+  await page.route('**/api/prs/143/metadata', (route) => {
+    if (route.request().method() === 'POST') {
+      const body = route.request().postDataJSON() as { value: string };
+      labels = [body.value];
+      return route.fulfill({ json: { ok: true } });
+    }
+    return route.fulfill({ json: { reviewers: [], assignees: [], labels, milestone: null, isDraft: false } });
+  });
+
+  await page.goto('/');
+  await page.getByRole('button', { name: 'Edit Labels' }).click();
+  await page.getByLabel('Search labels').fill('dev-dungtran');
+  await page.getByLabel('Color').fill('#ff8800');
+  expect(created).toBeUndefined();
+  await page.getByRole('button', { name: 'Create new label "dev-dungtran"' }).click();
+  await expect(page.getByLabel('dev-dungtran')).toBeChecked();
+  expect(created).toEqual({ name: 'dev-dungtran', color: 'ff8800' });
+});

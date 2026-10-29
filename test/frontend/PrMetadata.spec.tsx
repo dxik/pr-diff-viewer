@@ -5,9 +5,10 @@ import PrMetadata from '../../src/PrMetadata';
 
 afterEach(() => { cleanup(); vi.unstubAllGlobals(); });
 
-function mockMetadata(projectFailure = false) {
+function mockMetadata(projectFailure = false, applyFailure = false) {
   let current = { reviewers: [] as { name: string; status: string; requested: boolean }[], assignees: [] as string[], labels: [] as string[], milestone: null as string | null, isDraft: false };
   let projects: string[] = [];
+  let labelOptions = ['bug'];
   const fetchMock = vi.fn(async (input: RequestInfo | URL, init?: RequestInit) => {
     const path = String(input);
     let result: unknown;
@@ -17,9 +18,14 @@ function mockMetadata(projectFailure = false) {
       result = { projects };
     } else if (path.includes('/metadata/options?')) {
       const field = new URL(path, 'http://localhost').searchParams.get('field');
-      result = { options: field === 'reviewers' || field === 'assignees' ? ['alice'] : field === 'labels' ? ['bug'] : field === 'projects' ? ['Roadmap'] : ['v1'] };
+      result = { options: field === 'reviewers' || field === 'assignees' ? ['alice'] : field === 'labels' ? labelOptions : field === 'projects' ? ['Roadmap'] : ['v1'] };
+    } else if (path === '/api/labels' && init?.method === 'POST') {
+      const body = JSON.parse(String(init.body)) as { name: string };
+      labelOptions = [...labelOptions, body.name];
+      result = { name: body.name };
     } else if (init?.method === 'POST') {
       const body = JSON.parse(String(init.body)) as { field: string; action: string; value: string };
+      if (applyFailure && body.field === 'labels' && body.value === 'dev-dungtran') return { ok: false, json: async () => ({ error: 'No write access' }) };
       if (body.field === 'reviewers') current = { ...current, reviewers: body.action === 'add' ? [{ name: body.value, status: 'REVIEW_REQUESTED', requested: true }] : [] };
       if (body.field === 'assignees') current = { ...current, assignees: body.action === 'add' ? [body.value === '@me' ? 'me' : body.value] : [] };
       if (body.field === 'labels') current = { ...current, labels: body.action === 'add' ? [body.value] : [] };
@@ -60,6 +66,31 @@ it('edits PR settings and refreshes them after GitHub accepts changes', async ()
   await screen.findByText('Clear milestone');
   fireEvent.click(screen.getByText('Clear milestone'));
   await waitFor(() => expect(screen.getByText('No milestone')).toBeTruthy());
+});
+
+it('creates a label with the chosen color and applies it to the PR', async () => {
+  const fetchMock = mockMetadata();
+  render(<PrMetadata number={42} state="OPEN" onDraftChange={vi.fn()} />);
+  fireEvent.click(await screen.findByRole('button', { name: 'Edit Labels' }));
+  await screen.findByLabelText('bug');
+  fireEvent.change(screen.getByLabelText('Search labels'), { target: { value: 'dev-dungtran' } });
+  fireEvent.change(screen.getByLabelText('Color'), { target: { value: '#ff8800' } });
+  fireEvent.click(screen.getByRole('button', { name: 'Create new label "dev-dungtran"' }));
+  await waitFor(() => expect(screen.getByLabelText('dev-dungtran')).toBeChecked());
+  expect(fetchMock).toHaveBeenCalledWith('/api/labels', expect.objectContaining({ method: 'POST', body: JSON.stringify({ name: 'dev-dungtran', color: 'ff8800' }) }));
+  expect(fetchMock).toHaveBeenCalledWith('/api/prs/42/metadata', expect.objectContaining({ method: 'POST', body: JSON.stringify({ field: 'labels', action: 'add', value: 'dev-dungtran' }) }));
+});
+
+it('reports when a label was created but could not be applied', async () => {
+  mockMetadata(false, true);
+  render(<PrMetadata number={42} state="OPEN" onDraftChange={vi.fn()} />);
+  fireEvent.click(await screen.findByRole('button', { name: 'Edit Labels' }));
+  await screen.findByLabelText('bug');
+  fireEvent.change(screen.getByLabelText('Search labels'), { target: { value: 'dev-dungtran' } });
+  fireEvent.click(screen.getByRole('button', { name: 'Create new label "dev-dungtran"' }));
+  expect(await screen.findByRole('alert')).toHaveTextContent('Label created, but could not be applied: No write access');
+  expect(screen.getByLabelText('dev-dungtran')).not.toBeChecked();
+  expect(screen.queryByRole('button', { name: /Create new label/ })).toBeNull();
 });
 
 it('keeps other settings available when project access fails', async () => {

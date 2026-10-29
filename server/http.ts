@@ -71,6 +71,14 @@ export function createServer(options: { service?: GitService; metadataService?: 
           sendJson(response, 200, await service.listPrs(state as PrListState));
         } else if (request.method === 'GET' && url.pathname === '/api/merge-options') {
           sendJson(response, 200, await service.mergeOptions());
+        } else if (request.method === 'POST' && url.pathname === '/api/labels') {
+          const body = await readJson(request);
+          if (typeof body.name !== 'string' || !body.name.trim() || body.name.trim().length > 50 ||
+              Array.from(body.name).some((char) => char.charCodeAt(0) < 32 || char.charCodeAt(0) === 127) ||
+              typeof body.color !== 'string' || !/^[0-9a-f]{6}$/i.test(body.color)) {
+            throw new ServiceError('Tên hoặc màu label không hợp lệ.', 400);
+          }
+          sendJson(response, 201, await metadataService.createLabel(body.name.trim(), body.color));
         } else if (/^\/api\/prs\/[^/]+\/metadata(?:\/(?:projects|options))?$/.test(url.pathname)) {
           const parts = url.pathname.split('/');
           const rawNumber = parts[3];

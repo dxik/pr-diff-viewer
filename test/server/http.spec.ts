@@ -48,6 +48,7 @@ describe('local HTTP API', () => {
       projects: vi.fn(async () => ({ projects: [] })),
       options: vi.fn(async () => ({ options: ['bug'] })),
       update: vi.fn(async () => ({ ok: true })),
+      createLabel: vi.fn(async (name: string) => ({ name })),
     };
     const port = await start(serviceFixture(), metadataService as unknown as ReturnType<typeof createPrMetadataService>);
     const token = (await call(port, 'GET', '/api/session')).body.csrfToken as string;
@@ -64,6 +65,13 @@ describe('local HTTP API', () => {
     expect((await call(port, 'POST', '/api/prs/42/metadata', headers, { field: 'other', action: 'add', value: 'bug' })).status).toBe(400);
     expect((await call(port, 'POST', '/api/prs/42/metadata', headers, { field: 'labels', action: 'add', value: '' })).status).toBe(400);
     expect(metadataService.update).toHaveBeenCalledOnce();
+    expect((await call(port, 'POST', '/api/labels', headers, { name: ' dev-dungtran ', color: '5b8def' })).status).toBe(201);
+    expect(metadataService.createLabel).toHaveBeenCalledWith('dev-dungtran', '5b8def');
+    expect((await call(port, 'POST', '/api/labels', { ...headers, 'X-CSRF-Token': 'wrong' }, { name: 'new', color: '5b8def' })).status).toBe(403);
+    expect((await call(port, 'POST', '/api/labels', headers, { name: '', color: '5b8def' })).status).toBe(400);
+    expect((await call(port, 'POST', '/api/labels', headers, { name: 'x'.repeat(51), color: '5b8def' })).status).toBe(400);
+    expect((await call(port, 'POST', '/api/labels', headers, { name: 'new', color: 'nothex' })).status).toBe(400);
+    expect(metadataService.createLabel).toHaveBeenCalledOnce();
   });
   it('exposes only existing PR and session routes', async () => {
     const service = serviceFixture();

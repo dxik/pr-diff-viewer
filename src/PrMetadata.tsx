@@ -32,6 +32,7 @@ export default function PrMetadata({ number, state, onDraftChange }: Props) {
   const [menu, setMenu] = useState<Field | null>(null);
   const [options, setOptions] = useState<string[] | null>(null);
   const [search, setSearch] = useState("");
+  const [labelColor, setLabelColor] = useState("#5b8def");
   const [error, setError] = useState("");
   const [busy, setBusy] = useState(false);
   const optionsVersion = useRef(0);
@@ -79,6 +80,28 @@ export default function PrMetadata({ number, state, onDraftChange }: Props) {
     } finally { setBusy(false); }
   }
 
+  async function createLabel() {
+    if (busy || !search.trim()) return;
+    setBusy(true);
+    setError("");
+    let createdName = "";
+    let applied = false;
+    try {
+      const { csrfToken } = await request<{ csrfToken: string }>("/api/session");
+      const headers = { "Content-Type": "application/json", "X-CSRF-Token": csrfToken };
+      const created = await request<{ name: string }>("/api/labels", { method: "POST", headers, body: JSON.stringify({ name: search.trim(), color: labelColor.slice(1) }) });
+      createdName = created.name;
+      setOptions((current) => [...(current ?? []), created.name]);
+      setSearch(created.name);
+      await request(path, { method: "POST", headers, body: JSON.stringify({ field: "labels", action: "add", value: created.name }) });
+      applied = true;
+      setMetadata(await request<Metadata>(path));
+    } catch (failure) {
+      const message = (failure as Error).message;
+      setError(createdName ? applied ? `Label created and applied, but the PR could not be refreshed: ${message}` : `Label created, but could not be applied: ${message}` : message);
+    } finally { setBusy(false); }
+  }
+
   function selected(field: Field): string[] {
     if (!metadata) return [];
     if (field === "reviewers") return metadata.reviewers.filter((reviewer) => reviewer.requested).map((reviewer) => reviewer.name);
@@ -105,6 +128,7 @@ export default function PrMetadata({ number, state, onDraftChange }: Props) {
           <label htmlFor={`metadata-search-${key}`}>Search {label.toLowerCase()}</label>
           <input id={`metadata-search-${key}`} value={search} onChange={(event) => setSearch(event.target.value)} placeholder={`Filter ${label.toLowerCase()}`} />
           {options === null ? <p>{error ? "Could not load options." : "Loading..."}</p> : available.length === 0 ? <p>No options found.</p> : <div className="metadata-options">{available.map((value) => <label key={value}><input type={key === "milestone" ? "radio" : "checkbox"} name={`metadata-${key}`} checked={selectedValues.includes(value)} disabled={busy} onChange={() => void update(key, key === "milestone" ? "set" : selectedValues.includes(value) ? "remove" : "add", value)} />{value}</label>)}</div>}
+          {key === "labels" && options !== null && search.trim() && !options.some((option) => option.toLowerCase() === search.trim().toLowerCase()) ? <div className="metadata-create-label"><label htmlFor="new-label-color">Color</label><input id="new-label-color" type="color" value={labelColor} disabled={busy} onChange={(event) => setLabelColor(event.target.value)} /><button type="button" disabled={busy || search.trim().length > 50} onClick={() => void createLabel()}>Create new label "{search.trim()}"</button></div> : null}
           {key === "milestone" && metadata.milestone ? <button type="button" className="metadata-link" disabled={busy} onClick={() => void update("milestone", "remove")}>Clear milestone</button> : null}
           <button type="button" className="metadata-close" onClick={() => setMenu(null)}>Done</button>
         </div> : null}

@@ -3,6 +3,11 @@ import { createPrMetadataService } from '../../server/pr-metadata.js';
 import type { RunCommand } from '../../server/git-service.js';
 
 describe('PR metadata', () => {
+  it('creates a label in the fixed repository with the requested color', async () => {
+    const run = vi.fn<RunCommand>(async () => JSON.stringify({ name: 'dev-dungtran' }));
+    await expect(createPrMetadataService(run).createLabel('dev-dungtran', '5b8def')).resolves.toEqual({ name: 'dev-dungtran' });
+    expect(run).toHaveBeenCalledWith('gh', ['api', '-X', 'POST', 'repos/{owner}/{repo}/labels', '-f', 'name=dev-dungtran', '-f', 'color=5b8def']);
+  });
   it('reads reviewers, assignees, labels, milestone, draft and project data', async () => {
     const run = vi.fn<RunCommand>(async (_command, args) => args.includes('projectItems')
       ? JSON.stringify({ projectItems: [{ title: 'Roadmap' }] })
