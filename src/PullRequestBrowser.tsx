@@ -1,4 +1,6 @@
 import { useEffect, useState } from "react";
+import ReactMarkdown from "react-markdown";
+import remarkGfm from "remark-gfm";
 import PrMetadata from "./PrMetadata";
 
 type PullRequestItem = {
@@ -299,7 +301,7 @@ export default function PullRequestBrowser() {
               {tab === "Conversation" ? (
                 <div className="pr-conversation-layout"><div className="pr-conversation">
                   <h4>Overview</h4>
-                  <p className="pr-detail-body">{detail.body || "No description provided."}</p>
+                  <div className="pr-detail-body"><ReactMarkdown remarkPlugins={[remarkGfm]} skipHtml>{detail.body || "No description provided."}</ReactMarkdown></div>
                   <h4>Comments <span className="count-badge">{comments.length}</span></h4>
                   <div aria-label="Comments" className="pr-comments">{comments.length ? comments.map((comment, index) => <article className="pr-comment" key={`${comment.url}-${index}`}>
                     <div className="pr-comment-heading"><strong>{comment.author}</strong><span>{comment.kind}</span><time dateTime={comment.createdAt}>{new Date(comment.createdAt).toLocaleString()}</time>{githubUrl(comment.url) ? <a href={githubUrl(comment.url)} target="_blank" rel="noopener noreferrer">View comment ↗</a> : null}</div>

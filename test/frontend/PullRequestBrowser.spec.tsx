@@ -36,6 +36,22 @@ function mockApi(responses: Record<string, unknown>) {
 afterEach(() => { cleanup(); window.localStorage.clear(); vi.unstubAllGlobals(); });
 
 describe("pull request browser", () => {
+  it("renders the PR overview as GitHub-flavored Markdown without unsafe HTML or links", async () => {
+    const body = '## Purpose Summary\n\n- First item\n- [x] Done\n\n`code` and [documentation](https://example.com)\n\n| Name | Value |\n| --- | --- |\n| one | two |\n\n<script>alert(1)</script>\n\n[unsafe](javascript:alert(1))';
+    mockApi({
+      "/api/prs": { items: [items[0]] },
+      "/api/prs/143": { pr: { ...items[0], body, checks: [] }, comments: [] },
+    });
+    render(<PullRequestBrowser />);
+    expect(await screen.findByRole("heading", { name: "Purpose Summary", level: 2 })).toBeTruthy();
+    expect(screen.getByText("First item").closest("li")).toBeTruthy();
+    expect(screen.getByRole("checkbox")).toBeChecked();
+    expect(screen.getByText("code").tagName).toBe("CODE");
+    expect(screen.getByRole("link", { name: "documentation" })).toHaveAttribute("href", "https://example.com");
+    expect(screen.getByRole("table")).toHaveTextContent("one");
+    expect(screen.queryByText("alert(1)")).toBeNull();
+    expect(screen.getByText("unsafe").getAttribute("href")).not.toMatch(/^javascript:/i);
+  });
   it("confirms merge and refreshes the merged PR list", async () => {
     const head = "a".repeat(40);
     const fetchMock = mockApi({

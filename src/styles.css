@@ -848,7 +848,23 @@ code {
 .pr-detail-actions button:not(.button) { align-self: flex-start; border: 0; background: none; padding: 0; color: #365cf5; font-size: 12px; white-space: nowrap; }
 .pr-comment a { color: #365cf5; font-size: 12px; white-space: nowrap; }
 .pr-detail-status { display: flex; flex-wrap: wrap; align-items: center; gap: 9px 16px; font-size: 12px; color: #526078; }
-.pr-detail-body { white-space: pre-wrap; overflow-wrap: anywhere; color: #526078; font-size: 13px; line-height: 1.6; }
+.pr-detail-body { overflow-wrap: anywhere; color: #526078; font-size: 13px; line-height: 1.6; }
+.pr-detail-body h1, .pr-detail-body h2, .pr-detail-body h3, .pr-detail-body h4 { margin: 20px 0 10px; color: #344158; line-height: 1.3; }
+.pr-detail-body h1 { font-size: 22px; }
+.pr-detail-body h2 { font-size: 19px; }
+.pr-detail-body h3 { font-size: 16px; }
+.pr-detail-body h4 { font-size: 14px; }
+.pr-detail-body > :first-child { margin-top: 0; }
+.pr-detail-body p, .pr-detail-body ul, .pr-detail-body ol, .pr-detail-body blockquote { margin: 0 0 14px; }
+.pr-detail-body ul, .pr-detail-body ol { padding-left: 24px; }
+.pr-detail-body li + li { margin-top: 4px; }
+.pr-detail-body a { color: #365cf5; }
+.pr-detail-body code { border-radius: 4px; background: #edf1f6; padding: 2px 4px; font-size: 0.9em; }
+.pr-detail-body pre { overflow-x: auto; border-radius: 6px; background: #f4f6f9; padding: 12px; }
+.pr-detail-body pre code { background: none; padding: 0; }
+.pr-detail-body blockquote { border-left: 3px solid #dce3ec; padding-left: 12px; color: #718096; }
+.pr-detail-body table { display: block; max-width: 100%; overflow-x: auto; border-collapse: collapse; }
+.pr-detail-body th, .pr-detail-body td { border: 1px solid #dce3ec; padding: 6px 10px; text-align: left; }
 .pr-detail-panel h4 { margin: 22px 0 9px; font-size: 13px; }
 .pr-comments { display: grid; gap: 10px; }
 .pr-comment { border: 1px solid #e7ebf2; border-radius: 8px; padding: 12px 14px; }
