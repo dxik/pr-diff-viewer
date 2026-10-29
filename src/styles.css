@@ -151,6 +151,14 @@ code {
 .button-primary:hover {
   background: #294ddf;
 }
+.button-outline {
+  color: #365cf5;
+  background: #fff;
+  border: 1px solid #365cf5;
+}
+.button-outline:hover {
+  background: #f1f4ff;
+}
 .full-width {
   width: 100%;
 }
@@ -845,7 +853,6 @@ code {
 .pr-detail-header { display: flex; justify-content: space-between; gap: 16px; }
 .pr-detail-actions { display: flex; align-items: flex-start; gap: 12px; }
 .pr-detail-header h3 { margin: 7px 0 12px; font-size: 18px; overflow-wrap: anywhere; }
-.pr-detail-actions button:not(.button) { align-self: flex-start; border: 0; background: none; padding: 0; color: #365cf5; font-size: 12px; white-space: nowrap; }
 .pr-comment a { color: #365cf5; font-size: 12px; white-space: nowrap; }
 .pr-detail-status { display: flex; flex-wrap: wrap; align-items: center; gap: 9px 16px; font-size: 12px; color: #526078; }
 .pr-detail-body { overflow-wrap: anywhere; color: #526078; font-size: 13px; line-height: 1.6; }
