@@ -791,7 +791,7 @@ code {
 }
 .pr-browser-card.showing-wide-view { display: block; }
 .showing-wide-view .pr-list-panel { border-right: 0; border-bottom: 1px solid #e7ebf2; }
-.showing-wide-view .pr-list { max-height: 156px; }
+.showing-wide-view .pr-list { max-height: 312px; }
 .pr-list-panel {
   border-right: 1px solid #e7ebf2;
   min-width: 0;
