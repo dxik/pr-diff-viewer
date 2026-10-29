@@ -789,9 +789,9 @@ code {
   background: #fff;
   box-shadow: 0 2px 8px #16274408;
 }
-.pr-browser-card.showing-files { display: block; }
-.showing-files .pr-list-panel { border-right: 0; border-bottom: 1px solid #e7ebf2; }
-.showing-files .pr-list { max-height: 156px; }
+.pr-browser-card.showing-wide-view { display: block; }
+.showing-wide-view .pr-list-panel { border-right: 0; border-bottom: 1px solid #e7ebf2; }
+.showing-wide-view .pr-list { max-height: 156px; }
 .pr-list-panel {
   border-right: 1px solid #e7ebf2;
   min-width: 0;
@@ -913,7 +913,7 @@ code {
 }
 @media (max-width: 700px) {
   .pr-browser-card { grid-template-columns: 1fr; }
-  .pr-browser-card.showing-files { grid-template-columns: 1fr; }
+  .pr-browser-card.showing-wide-view { grid-template-columns: 1fr; }
   .pr-list-panel { border-right: 0; border-bottom: 1px solid #e7ebf2; }
   .pr-list { max-height: 300px; }
   .pr-detail-panel { padding: 18px; }
