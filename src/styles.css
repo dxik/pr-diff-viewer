@@ -983,3 +983,31 @@ code {
     display: none;
   }
 }
+
+.pr-conversation-layout { display: grid; grid-template-columns: minmax(0, 1fr) 220px; gap: 28px; align-items: start; }
+.pr-conversation { min-width: 0; }
+.pr-metadata { min-width: 0; font-size: 12px; color: #526078; }
+.metadata-section { position: relative; padding: 15px 0; border-bottom: 1px solid #e7ebf2; }
+.metadata-heading { display: flex; align-items: center; justify-content: space-between; gap: 8px; }
+.pr-detail-panel .metadata-heading h4 { margin: 0; color: #526078; }
+.metadata-heading button { border: 0; background: transparent; color: #718096; font-size: 18px; line-height: 1; cursor: pointer; }
+.metadata-heading button:hover, .metadata-heading button:focus-visible { color: #365cf5; }
+.metadata-section p { margin: 8px 0 0; overflow-wrap: anywhere; }
+.metadata-section ul { display: grid; gap: 7px; list-style: none; padding: 0; margin: 9px 0 0; }
+.metadata-section li { overflow-wrap: anywhere; font-weight: 600; }
+.metadata-section li small { display: block; margin-top: 2px; color: #8b98aa; font-weight: 400; }
+.metadata-draft button, .metadata-link { border: 0; padding: 0; background: transparent; color: #365cf5; text-align: left; cursor: pointer; }
+.metadata-draft button:hover, .metadata-link:hover { text-decoration: underline; }
+.metadata-link { margin-top: 8px; font-size: 12px; }
+.metadata-error { color: #b4233c; overflow-wrap: anywhere; }
+.metadata-menu { position: absolute; z-index: 5; top: 36px; right: 0; width: min(280px, 90vw); padding: 12px; border: 1px solid #dce3ec; border-radius: 8px; background: #fff; box-shadow: 0 12px 35px #26365024; }
+.metadata-menu > label { display: block; margin-bottom: 6px; color: #526078; font-weight: 700; }
+.metadata-menu > input { width: 100%; box-sizing: border-box; border: 1px solid #dce3ec; border-radius: 5px; padding: 7px; font: inherit; }
+.metadata-options { display: grid; gap: 4px; max-height: 220px; margin-top: 8px; overflow-y: auto; }
+.metadata-options label { display: flex; align-items: flex-start; gap: 7px; padding: 5px 0; overflow-wrap: anywhere; cursor: pointer; }
+.metadata-options input { accent-color: #365cf5; }
+.metadata-close { display: block; margin-top: 10px; border: 0; background: transparent; padding: 0; color: #365cf5; font-weight: 700; cursor: pointer; }
+@media (max-width: 900px) {
+  .pr-conversation-layout { grid-template-columns: 1fr; gap: 8px; }
+  .pr-metadata { display: grid; grid-template-columns: repeat(auto-fit, minmax(180px, 1fr)); gap: 0 20px; }
+}

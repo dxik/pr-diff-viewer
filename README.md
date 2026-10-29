@@ -23,6 +23,8 @@ Open <http://127.0.0.1:4317>. The API runs on `127.0.0.1:4318`. For a local prod
 
 The app only reads PRs from the fixed repository and offers the merge methods enabled in GitHub: merge commit, squash, or rebase. It shows merge conflicts when GitHub reports them and disables merge for a conflicting PR. It does not create PRs or use the current local branch.
 
+In the Conversation tab, users with permission can manage reviewers, assignees, labels, projects, milestones, and draft status. GitHub Projects requires project access; if the account lacks the required scope, run `gh auth refresh -s project` and restart the app.
+
 ## Checks
 
 ```sh

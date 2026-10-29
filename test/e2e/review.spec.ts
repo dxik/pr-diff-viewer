@@ -1,6 +1,10 @@
 import { expect, test } from '@playwright/test';
 
 const headSha = 'a'.repeat(40);
+test.beforeEach(async ({ page }) => {
+  await page.route('**/api/prs/*/metadata', (route) => route.fulfill({ json: { reviewers: [], assignees: [], labels: [], milestone: null, isDraft: false } }));
+  await page.route('**/api/prs/*/metadata/projects', (route) => route.fulfill({ json: { projects: [] } }));
+});
 test('shows PR commits and code changes from GitHub', async ({ page }) => {
   const pr = {
     number: 143, title: 'Review example', body: 'Ready for review',
@@ -17,6 +21,9 @@ test('shows PR commits and code changes from GitHub', async ({ page }) => {
   await page.goto('/');
   await expect(page.getByRole('heading', { name: 'Review example', exact: true })).toBeVisible();
   await expect(page.getByText('APPROVED', { exact: true })).toBeVisible();
+  await expect(page.getByText('Ready for review')).toBeVisible();
+  await expect(page.getByRole('tab')).toHaveCount(4);
+  await page.getByRole('tab', { name: 'Checks' }).click();
   await expect(page.getByText('SUCCESS', { exact: true })).toBeVisible();
   await page.getByRole('tab', { name: 'Commits' }).click();
   await expect(page.getByText('Improve review')).toBeVisible();
@@ -120,4 +127,35 @@ test('shows merge conflicts and disables merge', async ({ page }) => {
   await expect(page.getByText('Merge conflicts — resolve on GitHub')).toBeVisible();
   await expect(page.getByRole('button', { name: 'Merge', exact: true })).toBeDisabled();
   await expect(page.getByRole('button', { name: 'PR #197 Conflicting PR' })).toContainText('Merge conflicts');
+});
+
+test('updates labels and draft status from the PR sidebar', async ({ page }) => {
+  const item = { number: 143, title: 'Review example', state: 'OPEN', isDraft: false,
+    headRefName: 'feature/review', baseRefName: 'dev', updatedAt: '',
+    url: 'https://github.com/PaulSklarXfit/psxfit365-monorepo/pull/143',
+    reviewDecision: null, checkStatus: 'none', mergeable: 'MERGEABLE' };
+  let labels: string[] = [];
+  let isDraft = false;
+  await page.route('**/api/prs?state=*', (route) => route.fulfill({ json: { items: [item] } }));
+  await page.route('**/api/prs/143', (route) => route.fulfill({ json: { pr: { ...item, headRefOid: headSha, body: '', checks: [] }, comments: [] } }));
+  await page.route('**/api/session', (route) => route.fulfill({ json: { csrfToken: 'test-csrf' } }));
+  await page.route('**/api/prs/143/metadata/options?field=labels', (route) => route.fulfill({ json: { options: ['bug'] } }));
+  await page.route('**/api/prs/143/metadata', (route) => {
+    if (route.request().method() === 'POST') {
+      const body = route.request().postDataJSON() as { field: string; action: string; value: string };
+      if (body.field === 'labels') labels = body.action === 'add' ? [body.value] : [];
+      if (body.field === 'draft') isDraft = body.action === 'add';
+      return route.fulfill({ json: { ok: true } });
+    }
+    return route.fulfill({ json: { reviewers: [], assignees: [], labels, milestone: null, isDraft } });
+  });
+
+  await page.goto('/');
+  await page.getByRole('button', { name: 'Edit Labels' }).click();
+  await page.getByLabel('bug').click();
+  await expect(page.getByLabel('bug')).toBeChecked();
+  await page.getByRole('button', { name: 'Done' }).click();
+  await page.getByRole('button', { name: 'Convert to draft' }).click();
+  await expect(page.getByRole('button', { name: 'Mark ready for review' })).toBeVisible();
+  await expect(page.getByRole('button', { name: 'Merge', exact: true })).toHaveCount(0);
 });

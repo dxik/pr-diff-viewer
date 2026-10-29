@@ -13,6 +13,8 @@ function mockApi(responses: Record<string, unknown>) {
   const fetchMock = vi.fn(async (input: RequestInfo | URL, init?: RequestInit) => {
     const path = String(input);
     let response = responses[`${init?.method ?? "GET"} ${path}`] ?? responses[path];
+    if (/\/metadata$/.test(path) && response === undefined) response = { reviewers: [], assignees: [], labels: [], milestone: null, isDraft: false };
+    if (/\/metadata\/projects$/.test(path) && response === undefined) response = { projects: [] };
     if (path === "/api/session" && response === undefined) response = { csrfToken: "test-csrf" };
     if (path === "/api/merge-options" && response === undefined) response = { methods: ["merge", "squash", "rebase"] };
     if (response === undefined && path.startsWith("/api/prs?state=")) {
@@ -136,6 +138,7 @@ describe("pull request browser", () => {
     expect(await screen.findByText("Please check this line")).toBeTruthy();
     expect(screen.getByText("src/a.ts:12")).toBeTruthy();
     expect(screen.getByText("Draft body")).toBeTruthy();
+    fireEvent.click(screen.getByRole("tab", { name: "Checks" }));
     expect(screen.getByText("IN_PROGRESS")).toBeTruthy();
   });
 
@@ -187,6 +190,7 @@ describe("pull request browser", () => {
     render(<PullRequestBrowser />);
     expect(await screen.findByText("Looks good")).toBeTruthy();
     expect(screen.queryByRole("link", { name: /View comment/i })).toBeNull();
+    fireEvent.click(screen.getByRole("tab", { name: "Checks" }));
     await waitFor(() => expect(screen.getByText("No checks reported.")).toBeTruthy());
   });
 
@@ -232,6 +236,8 @@ describe("pull request browser", () => {
       const path = String(input);
       if (path === "/api/prs?state=open") return { ok: true, json: async () => ({ items: [items[0]] }) };
       if (path === "/api/prs/143") return { ok: true, json: async () => ({ pr: { ...items[0], body: "", checks: [] }, comments: [] }) };
+      if (path === "/api/prs/143/metadata") return { ok: true, json: async () => ({ reviewers: [], assignees: [], labels: [], milestone: null, isDraft: false }) };
+      if (path === "/api/prs/143/metadata/projects") return { ok: true, json: async () => ({ projects: [] }) };
       return { ok: true, json: async () => ({ files: [{ path: "src/plan.ts", sha: "plan-sha", status: "modified", additions: 1, deletions: 0, isBinary: false, patchAvailable: true, hunks: [{ header: "@@ -0,0 +1 @@", lines: [{ kind: "add", oldNumber: null, newNumber: 1, content: "new content" }] }] }] }) };
     });
     render(<PullRequestBrowser />);

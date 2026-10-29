@@ -4,6 +4,7 @@ import { readFile } from 'node:fs/promises';
 import { extname, resolve, sep } from 'node:path';
 import { fileURLToPath } from 'node:url';
 import { createGitService, createRunner, mergeMethods, ServiceError, type GitService, type MergeMethod, type PrListState } from './git-service.js';
+import { createPrMetadataService, metadataFields, type MetadataAction, type MetadataField } from './pr-metadata.js';
 
 const appRoot = resolve(fileURLToPath(new URL('.', import.meta.url)), '..');
 const mimeTypes: Record<string, string> = {
@@ -31,8 +32,9 @@ async function readJson(request: IncomingMessage): Promise<Record<string, unknow
   }
 }
 
-export function createServer(options: { service?: GitService; staticDir?: string; } = {}) {
+export function createServer(options: { service?: GitService; metadataService?: ReturnType<typeof createPrMetadataService>; staticDir?: string; } = {}) {
   const service = options.service ?? createGitService(createRunner());
+  const metadataService = options.metadataService ?? createPrMetadataService(createRunner());
   const staticDir = options.staticDir ?? resolve(appRoot, 'dist');
   const csrfToken = randomBytes(32).toString('hex');
 
@@ -69,6 +71,33 @@ export function createServer(options: { service?: GitService; staticDir?: string
           sendJson(response, 200, await service.listPrs(state as PrListState));
         } else if (request.method === 'GET' && url.pathname === '/api/merge-options') {
           sendJson(response, 200, await service.mergeOptions());
+        } else if (/^\/api\/prs\/[^/]+\/metadata(?:\/(?:projects|options))?$/.test(url.pathname)) {
+          const parts = url.pathname.split('/');
+          const rawNumber = parts[3];
+          const number = Number(rawNumber);
+          if (!/^[1-9]\d*$/.test(rawNumber) || !Number.isSafeInteger(number)) throw new ServiceError('Số PR không hợp lệ.', 400);
+          if (request.method === 'GET' && parts[5] === 'projects') {
+            sendJson(response, 200, await metadataService.projects(number));
+          } else if (request.method === 'GET' && parts[5] === 'options') {
+            const fields = url.searchParams.getAll('field');
+            if (fields.length !== 1 || fields[0] === 'draft' || !metadataFields.includes(fields[0] as MetadataField)) throw new ServiceError('Mục PR không hợp lệ.', 400);
+            sendJson(response, 200, await metadataService.options(fields[0] as Exclude<MetadataField, 'draft'>));
+          } else if (request.method === 'GET' && !parts[5]) {
+            sendJson(response, 200, await metadataService.metadata(number));
+          } else if (request.method === 'POST' && !parts[5]) {
+            const body = await readJson(request);
+            const field = body.field as MetadataField;
+            const action = body.action as MetadataAction;
+            const validAction = field === 'milestone' ? action === 'set' || action === 'remove' : action === 'add' || action === 'remove';
+            if (typeof field !== 'string' || !metadataFields.includes(field) || !validAction ||
+                typeof body.value !== 'string' || body.value.length > 256 || Array.from(body.value).some((char) => char.charCodeAt(0) < 32 || char.charCodeAt(0) === 127) ||
+                (field !== 'draft' && !(field === 'milestone' && action === 'remove') && !body.value.trim())) {
+              throw new ServiceError('Thông tin PR không hợp lệ.', 400);
+            }
+            sendJson(response, 200, await metadataService.update(number, field, action, body.value));
+          } else {
+            throw new ServiceError('API không tồn tại.', 404);
+          }
         } else if (request.method === 'POST' && /^\/api\/prs\/[^/]+\/merge$/.test(url.pathname)) {
           const rawNumber = url.pathname.split('/')[3];
           const number = Number(rawNumber);

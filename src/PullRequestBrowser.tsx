@@ -1,4 +1,5 @@
 import { useEffect, useState } from "react";
+import PrMetadata from "./PrMetadata";
 
 type PullRequestItem = {
   number: number;
@@ -44,7 +45,7 @@ type PrFile = {
   hunks: { header: string; lines: { kind: "add" | "remove" | "context" | "meta"; oldNumber: number | null; newNumber: number | null; content: string }[] }[];
 };
 type GitHubFile = Omit<PrFile, "viewed">;
-type DetailTab = "Conversation" | "Commits" | "Files changed";
+type DetailTab = "Conversation" | "Commits" | "Checks" | "Files changed";
 
 type Filter = "All" | "Open" | "Merged" | "Closed";
 const filters: Filter[] = ["All", "Open", "Merged", "Closed"];
@@ -148,7 +149,7 @@ export default function PullRequestBrowser() {
   }, [selectedNumber]);
 
   useEffect(() => {
-    if (selectedNumber === null || tab === "Conversation") return;
+    if (selectedNumber === null || tab === "Conversation" || tab === "Checks") return;
     let isCurrent = true;
     setTabError("");
     const path = tab === "Commits" ? "commits" : "files";
@@ -292,21 +293,25 @@ export default function PullRequestBrowser() {
             <>
               <div className="pr-detail-header"><div><span className="eyebrow">PR #{detail.number}</span><h3>{detail.title}</h3></div><div className="pr-detail-actions">{githubUrl(detail.url) ? <button type="button" onClick={() => void copyPrUrl(detail.number, detail.url)}>{copyButtonText}</button> : null}{detail.state === "OPEN" && !detail.isDraft && detail.headRefOid ? <button type="button" className="button button-primary" disabled={detail.mergeable === "CONFLICTING"} onClick={() => openMerge(detail)}>Merge</button> : null}</div></div>
               <div className="pr-detail-status"><span className={`pill ${detail.state.toLowerCase()}`}>{stateLabel(detail)}</span><span>Review: <strong>{detail.reviewDecision ?? "Pending"}</strong></span><span className={`check-indicator ${detail.checkStatus}`}>Checks: {detail.checkStatus}</span>{detail.state === "OPEN" ? <span className={detail.mergeable === "CONFLICTING" ? "conflict-indicator" : ""}>{detail.mergeable === "CONFLICTING" ? "Merge conflicts — resolve on GitHub" : detail.mergeable === "MERGEABLE" ? "No merge conflicts" : "Checking merge conflicts…"}</span> : null}</div>
-              {detail.body ? <p className="pr-detail-body">{detail.body}</p> : null}
               <div className="pr-detail-tabs" role="tablist" aria-label="PR detail">
-                {(["Conversation", "Commits", "Files changed"] as const).map((option) => <button key={option} type="button" role="tab" aria-selected={tab === option} onClick={() => setTab(option)}>{option}</button>)}
+                {(["Conversation", "Commits", "Checks", "Files changed"] as const).map((option) => <button key={option} type="button" role="tab" aria-selected={tab === option} onClick={() => setTab(option)}>{option}</button>)}
               </div>
               {tab === "Conversation" ? (
-                <>
-                  <h4>Checks</h4>
-                  {detail.checks.length ? <ul className="checks-list">{detail.checks.map((check, index) => <li key={`${check.name}-${index}`}><span className={`check-dot ${(check.conclusion ?? check.status).toLowerCase()}`} /><span>{check.name}</span><small>{check.conclusion ?? check.status}</small></li>)}</ul> : <p className="muted">No checks reported.</p>}
+                <div className="pr-conversation-layout"><div className="pr-conversation">
+                  <h4>Overview</h4>
+                  <p className="pr-detail-body">{detail.body || "No description provided."}</p>
                   <h4>Comments <span className="count-badge">{comments.length}</span></h4>
                   <div aria-label="Comments" className="pr-comments">{comments.length ? comments.map((comment, index) => <article className="pr-comment" key={`${comment.url}-${index}`}>
                     <div className="pr-comment-heading"><strong>{comment.author}</strong><span>{comment.kind}</span><time dateTime={comment.createdAt}>{new Date(comment.createdAt).toLocaleString()}</time>{githubUrl(comment.url) ? <a href={githubUrl(comment.url)} target="_blank" rel="noopener noreferrer">View comment ↗</a> : null}</div>
                     {comment.path ? <div className="pr-comment-path">{comment.path}{comment.line != null ? `:${comment.line}` : ""}</div> : null}
                     <p>{comment.body}</p>
                   </article>) : <p className="muted">No comments yet.</p>}</div>
-                </>
+                </div><PrMetadata key={detail.number} number={detail.number} state={detail.state} onDraftChange={(isDraft) => {
+                  setDetail((current) => current?.number === detail.number ? { ...current, isDraft } : current);
+                  setItems((current) => current?.map((item) => item.number === detail.number ? { ...item, isDraft } : item) ?? null);
+                }} /></div>
+              ) : tab === "Checks" ? (
+                <>{detail.checks.length ? <ul className="checks-list">{detail.checks.map((check, index) => <li key={`${check.name}-${index}`}><span className={`check-dot ${(check.conclusion ?? check.status).toLowerCase()}`} /><span>{check.name}</span><small>{check.conclusion ?? check.status}</small></li>)}</ul> : <p className="pr-message">No checks reported.</p>}</>
               ) : tabError ? <p role="alert" className="pr-message">{tabError}</p> : tab === "Commits" ? (
                 commits?.number === selectedNumber ? <ol className="pr-commit-list">{commits.items.map((commit) => <li key={commit.sha}><code>{commit.sha.slice(0, 8)}</code><strong>{commit.subject}</strong><span>{commit.author}</span><time dateTime={commit.authoredAt}>{new Date(commit.authoredAt).toLocaleString()}</time></li>)}</ol> : <p className="pr-message">Loading commits…</p>
               ) : files?.number === selectedNumber ? (

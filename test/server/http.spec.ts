@@ -2,6 +2,7 @@ import { afterEach, describe, expect, it, vi } from 'vitest';
 import { request as httpRequest, type Server } from 'node:http';
 import { createServer } from '../../server/http.js';
 import type { GitService } from '../../server/git-service.js';
+import type { createPrMetadataService } from '../../server/pr-metadata.js';
 
 const head = 'a'.repeat(40);
 let server: Server | undefined;
@@ -22,8 +23,8 @@ function serviceFixture() {
   };
 }
 
-async function start(service: ReturnType<typeof serviceFixture>) {
-  server = createServer({ service: service as unknown as GitService });
+async function start(service: ReturnType<typeof serviceFixture>, metadataService?: ReturnType<typeof createPrMetadataService>) {
+  server = createServer({ service: service as unknown as GitService, metadataService });
   await new Promise<void>((resolve) => server!.listen(0, '127.0.0.1', resolve));
   return (server.address() as { port: number }).port;
 }
@@ -41,6 +42,29 @@ function call(port: number, method: string, path: string, headers: Record<string
 }
 
 describe('local HTTP API', () => {
+  it('validates PR metadata updates and requires CSRF protection', async () => {
+    const metadataService = {
+      metadata: vi.fn(async () => ({ reviewers: [] })),
+      projects: vi.fn(async () => ({ projects: [] })),
+      options: vi.fn(async () => ({ options: ['bug'] })),
+      update: vi.fn(async () => ({ ok: true })),
+    };
+    const port = await start(serviceFixture(), metadataService as unknown as ReturnType<typeof createPrMetadataService>);
+    const token = (await call(port, 'GET', '/api/session')).body.csrfToken as string;
+    const headers = { Origin: 'http://127.0.0.1:4317', 'X-CSRF-Token': token, 'Content-Type': 'application/json' };
+    expect((await call(port, 'GET', '/api/prs/42/metadata')).body).toEqual({ reviewers: [] });
+    expect((await call(port, 'GET', '/api/prs/42/metadata/projects')).body).toEqual({ projects: [] });
+    expect((await call(port, 'GET', '/api/prs/42/metadata/options?field=labels')).body).toEqual({ options: ['bug'] });
+    expect((await call(port, 'GET', '/api/prs/42/metadata/options?field=draft')).status).toBe(400);
+    expect((await call(port, 'GET', '/api/prs/0/metadata')).status).toBe(400);
+    expect((await call(port, 'POST', '/api/prs/42/metadata', headers, { field: 'labels', action: 'add', value: 'bug' })).status).toBe(200);
+    expect(metadataService.update).toHaveBeenCalledWith(42, 'labels', 'add', 'bug');
+    expect((await call(port, 'POST', '/api/prs/42/metadata', { ...headers, 'X-CSRF-Token': 'bad' }, { field: 'labels', action: 'add', value: 'bug' })).status).toBe(403);
+    expect((await call(port, 'POST', '/api/prs/42/metadata', headers, { field: 'labels', action: 'set', value: 'bug' })).status).toBe(400);
+    expect((await call(port, 'POST', '/api/prs/42/metadata', headers, { field: 'other', action: 'add', value: 'bug' })).status).toBe(400);
+    expect((await call(port, 'POST', '/api/prs/42/metadata', headers, { field: 'labels', action: 'add', value: '' })).status).toBe(400);
+    expect(metadataService.update).toHaveBeenCalledOnce();
+  });
   it('exposes only existing PR and session routes', async () => {
     const service = serviceFixture();
     const port = await start(service);

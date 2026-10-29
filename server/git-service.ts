@@ -19,7 +19,7 @@ export function createRunner(): RunCommand {
     try {
       const commandArgs = args[0] === 'api'
         ? args.map((arg) => arg.replaceAll('repos/{owner}/{repo}', `repos/${repository}`))
-        : [...args, '-R', repository];
+        : args[0] === 'pr' ? [...args, '-R', repository] : args;
       const { stdout } = await execFileAsync(command, commandArgs, {
         encoding: 'utf8',
         maxBuffer: 16 * 1024 * 1024,
