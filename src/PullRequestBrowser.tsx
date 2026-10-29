@@ -276,7 +276,7 @@ export default function PullRequestBrowser() {
         <div><span className="eyebrow">GITHUB</span><h2>Pull requests <span className="count-badge">{items?.length ?? 0}</span></h2></div>
         <span className="muted">Recent PRs · up to 100 per status</span>
       </div>
-      <div className={`pr-browser-card ${tab === "Files changed" || tab === "Conversation" ? "showing-wide-view" : ""}`}>
+      <div className="pr-browser-card showing-wide-view">
         <div className="pr-list-panel">
           <div className="pr-filters" aria-label="PR status filter">
             {filters.map((option) => <button key={option} type="button" className={filter === option ? "active" : ""} aria-pressed={filter === option} onClick={() => selectFilter(option)}>{option}</button>)}
