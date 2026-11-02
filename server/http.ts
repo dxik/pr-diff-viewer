@@ -5,6 +5,7 @@ import { extname, resolve, sep } from 'node:path';
 import { fileURLToPath } from 'node:url';
 import { createGitService, createRunner, mergeMethods, ServiceError, type GitService, type MergeMethod, type PrListState } from './git-service.js';
 import { createPrMetadataService, metadataFields, type MetadataAction, type MetadataField } from './pr-metadata.js';
+import { createActionsService } from './actions-service.js';
 
 const appRoot = resolve(fileURLToPath(new URL('.', import.meta.url)), '..');
 const mimeTypes: Record<string, string> = {
@@ -32,9 +33,10 @@ async function readJson(request: IncomingMessage): Promise<Record<string, unknow
   }
 }
 
-export function createServer(options: { service?: GitService; metadataService?: ReturnType<typeof createPrMetadataService>; staticDir?: string; } = {}) {
+export function createServer(options: { service?: GitService; metadataService?: ReturnType<typeof createPrMetadataService>; actionsService?: ReturnType<typeof createActionsService>; staticDir?: string; } = {}) {
   const service = options.service ?? createGitService(createRunner());
   const metadataService = options.metadataService ?? createPrMetadataService(createRunner());
+  const actionsService = options.actionsService ?? createActionsService(createRunner());
   const staticDir = options.staticDir ?? resolve(appRoot, 'dist');
   const csrfToken = randomBytes(32).toString('hex');
 
@@ -69,6 +71,19 @@ export function createServer(options: { service?: GitService; metadataService?: 
             throw new ServiceError('Trạng thái PR không hợp lệ.', 400);
           }
           sendJson(response, 200, await service.listPrs(state as PrListState));
+        } else if (request.method === 'GET' && url.pathname === '/api/actions/workflows') {
+          sendJson(response, 200, await actionsService.workflows());
+        } else if (request.method === 'GET' && url.pathname === '/api/actions/runs') {
+          const workflowValues = url.searchParams.getAll('workflow');
+          const pageValues = url.searchParams.getAll('page');
+          const workflow = workflowValues[0];
+          const page = pageValues[0] ?? '1';
+          if (workflowValues.length > 1 || pageValues.length > 1 ||
+              (workflow !== undefined && (!/^[1-9]\d*$/.test(workflow) || !Number.isSafeInteger(Number(workflow)))) ||
+              !/^[1-9]\d*$/.test(page) || !Number.isSafeInteger(Number(page)) || Number(page) > 1000) {
+            throw new ServiceError('Bộ lọc workflow không hợp lệ.', 400);
+          }
+          sendJson(response, 200, await actionsService.runs(workflow === undefined ? null : Number(workflow), Number(page)));
         } else if (request.method === 'GET' && url.pathname === '/api/merge-options') {
           sendJson(response, 200, await service.mergeOptions());
         } else if (request.method === 'POST' && url.pathname === '/api/labels') {

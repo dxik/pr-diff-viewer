@@ -5,6 +5,25 @@ test.beforeEach(async ({ page }) => {
   await page.route('**/api/prs/*/metadata', (route) => route.fulfill({ json: { reviewers: [], assignees: [], labels: [], milestone: null, isDraft: false } }));
   await page.route('**/api/prs/*/metadata/projects', (route) => route.fulfill({ json: { projects: [] } }));
 });
+
+test('browses Actions runs and filters by workflow', async ({ page }) => {
+  await page.route('**/api/prs?state=*', (route) => route.fulfill({ json: { items: [] } }));
+  await page.route('**/api/actions/workflows', (route) => route.fulfill({ json: { workflows: [{ id: 12, name: 'CI', path: '.github/workflows/ci.yml', state: 'active' }] } }));
+  await page.route('**/api/actions/runs?*', (route) => {
+    const query = new URL(route.request().url()).searchParams;
+    return route.fulfill({ json: { totalCount: 31, runs: [{ id: 100, workflowId: 12, name: 'CI', title: query.get('page') === '2' ? 'Older run' : 'Fix bug', status: 'completed', conclusion: 'success', branch: 'dev', event: 'push', createdAt: '2026-11-02T10:00:00Z', runNumber: 4, actor: 'alice', url: 'https://github.com/PaulSklarXfit/psxfit365-monorepo/actions/runs/100' }] } });
+  });
+  await page.goto('/');
+  await page.getByRole('button', { name: 'Actions', exact: true }).click();
+  await expect(page.getByRole('heading', { name: 'All workflows' })).toBeVisible();
+  await expect(page.getByRole('link', { name: 'Fix bug' })).toBeVisible();
+  await page.getByRole('button', { name: 'CI', exact: true }).click();
+  await expect(page.getByRole('button', { name: 'CI', exact: true })).toHaveAttribute('aria-pressed', 'true');
+  await page.getByRole('button', { name: 'Next' }).click();
+  await expect(page.getByRole('link', { name: 'Older run' })).toBeVisible();
+  await page.getByRole('button', { name: 'Pull requests', exact: true }).click();
+  await expect(page.getByRole('region', { name: 'Pull requests' })).toBeVisible();
+});
 test('shows PR commits and code changes from GitHub', async ({ page }) => {
   const pr = {
     number: 143, title: 'Review example', body: 'Ready for review',

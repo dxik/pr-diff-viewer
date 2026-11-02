@@ -25,6 +25,8 @@ The app only reads PRs from the fixed repository and offers the merge methods en
 
 In the Conversation tab, users with permission can manage reviewers, assignees, labels, projects, milestones, and draft status. GitHub Projects requires project access; if the account lacks the required scope, run `gh auth refresh -s project` and restart the app.
 
+The Actions tab lists workflows and their recent runs, with workflow filtering and pagination. Opening a run shows its details on GitHub and requires the account to have access to Actions in the repository.
+
 ## Checks
 
 ```sh

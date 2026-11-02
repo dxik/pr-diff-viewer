@@ -3,6 +3,7 @@ import { request as httpRequest, type Server } from 'node:http';
 import { createServer } from '../../server/http.js';
 import type { GitService } from '../../server/git-service.js';
 import type { createPrMetadataService } from '../../server/pr-metadata.js';
+import type { createActionsService } from '../../server/actions-service.js';
 
 const head = 'a'.repeat(40);
 let server: Server | undefined;
@@ -23,8 +24,8 @@ function serviceFixture() {
   };
 }
 
-async function start(service: ReturnType<typeof serviceFixture>, metadataService?: ReturnType<typeof createPrMetadataService>) {
-  server = createServer({ service: service as unknown as GitService, metadataService });
+async function start(service: ReturnType<typeof serviceFixture>, metadataService?: ReturnType<typeof createPrMetadataService>, actionsService?: ReturnType<typeof createActionsService>) {
+  server = createServer({ service: service as unknown as GitService, metadataService, actionsService });
   await new Promise<void>((resolve) => server!.listen(0, '127.0.0.1', resolve));
   return (server.address() as { port: number }).port;
 }
@@ -42,6 +43,22 @@ function call(port: number, method: string, path: string, headers: Record<string
 }
 
 describe('local HTTP API', () => {
+  it('serves workflow runs and rejects invalid filters', async () => {
+    const actionsService = {
+      workflows: vi.fn(async () => ({ workflows: [] })),
+      runs: vi.fn(async () => ({ totalCount: 0, runs: [] })),
+    };
+    const port = await start(serviceFixture(), undefined, actionsService as unknown as ReturnType<typeof createActionsService>);
+    expect((await call(port, 'GET', '/api/actions/workflows')).status).toBe(200);
+    expect((await call(port, 'GET', '/api/actions/runs')).status).toBe(200);
+    expect(actionsService.runs).toHaveBeenCalledWith(null, 1);
+    expect((await call(port, 'GET', '/api/actions/runs?workflow=12&page=2')).status).toBe(200);
+    expect(actionsService.runs).toHaveBeenCalledWith(12, 2);
+    for (const query of ['workflow=abc', 'workflow=0', 'workflow=1&workflow=2', 'page=0', 'page=1001', 'page=1&page=2']) {
+      expect((await call(port, 'GET', `/api/actions/runs?${query}`)).status).toBe(400);
+    }
+    expect(actionsService.runs).toHaveBeenCalledTimes(2);
+  });
   it('validates PR metadata updates and requires CSRF protection', async () => {
     const metadataService = {
       metadata: vi.fn(async () => ({ reviewers: [] })),
