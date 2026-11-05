@@ -4,6 +4,7 @@ import { createServer } from '../../server/http.js';
 import type { GitService } from '../../server/git-service.js';
 import type { createPrMetadataService } from '../../server/pr-metadata.js';
 import type { createActionsService } from '../../server/actions-service.js';
+import type { createCompareService } from '../../server/compare-service.js';
 
 const head = 'a'.repeat(40);
 let server: Server | undefined;
@@ -24,8 +25,8 @@ function serviceFixture() {
   };
 }
 
-async function start(service: ReturnType<typeof serviceFixture>, metadataService?: ReturnType<typeof createPrMetadataService>, actionsService?: ReturnType<typeof createActionsService>) {
-  server = createServer({ service: service as unknown as GitService, metadataService, actionsService });
+async function start(service: ReturnType<typeof serviceFixture>, metadataService?: ReturnType<typeof createPrMetadataService>, actionsService?: ReturnType<typeof createActionsService>, compareService?: ReturnType<typeof createCompareService>) {
+  server = createServer({ service: service as unknown as GitService, metadataService, actionsService, compareService });
   await new Promise<void>((resolve) => server!.listen(0, '127.0.0.1', resolve));
   return (server.address() as { port: number }).port;
 }
@@ -43,6 +44,22 @@ function call(port: number, method: string, path: string, headers: Record<string
 }
 
 describe('local HTTP API', () => {
+  it('validates branch comparisons and protects PR creation with CSRF', async () => {
+    const compareService = { branches: vi.fn(async () => ({ branches: [] })), compare: vi.fn(async () => ({})), createPr: vi.fn(async () => ({ number: 144 })) };
+    const port = await start(serviceFixture(), undefined, undefined, compareService as unknown as ReturnType<typeof createCompareService>);
+    expect((await call(port, 'GET', '/api/compare/branches')).status).toBe(200);
+    expect((await call(port, 'GET', '/api/compare?base=dev&head=feature%2F%23123')).status).toBe(200);
+    expect(compareService.compare).toHaveBeenCalledWith('dev', 'feature/#123');
+    expect((await call(port, 'GET', '/api/compare?base=dev&base=x&head=y')).status).toBe(400);
+    const token = (await call(port, 'GET', '/api/session')).body.csrfToken as string;
+    const headers = { Origin: 'http://127.0.0.1:4317', 'X-CSRF-Token': token, 'Content-Type': 'application/json' };
+    const body = { base: 'dev', head: 'feature', title: ' New ', body: '', draft: false, expectedBaseSha: head, expectedHeadSha: head };
+    expect((await call(port, 'POST', '/api/compare/pr', { ...headers, 'X-CSRF-Token': 'bad' }, body)).status).toBe(403);
+    expect((await call(port, 'POST', '/api/compare/pr', headers, { ...body, expectedHeadSha: 'bad' })).status).toBe(400);
+    expect((await call(port, 'POST', '/api/compare/pr', headers, { ...body, title: ' ' })).status).toBe(400);
+    expect((await call(port, 'POST', '/api/compare/pr', headers, body)).status).toBe(201);
+    expect(compareService.createPr).toHaveBeenCalledWith({ ...body, title: 'New' });
+  });
   it('serves workflow runs and rejects invalid filters', async () => {
     const actionsService = {
       workflows: vi.fn(async () => ({ workflows: [] })),

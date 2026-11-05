@@ -6,6 +6,31 @@ test.beforeEach(async ({ page }) => {
   await page.route('**/api/prs/*/metadata/projects', (route) => route.fulfill({ json: { projects: [] } }));
 });
 
+test('compares GitHub branches and creates a pull request after confirmation', async ({ page }) => {
+  const base = 'b'.repeat(40);
+  const branches = [{ name: 'dev', sha: base }, { name: 'feature/review', sha: headSha }];
+  let created: Record<string, unknown> | undefined;
+  const item = { number: 144, title: 'My PR', state: 'OPEN', isDraft: false, headRefName: 'feature/review', baseRefName: 'dev', updatedAt: '', url: 'https://github.com/PaulSklarXfit/psxfit365-monorepo/pull/144', reviewDecision: null, checkStatus: 'none', mergeable: 'UNKNOWN' };
+  await page.route('**/api/prs?state=*', (route) => route.fulfill({ json: { items: created ? [item] : [] } }));
+  await page.route('**/api/prs/144', (route) => route.fulfill({ json: { pr: { ...item, body: '', checks: [] }, comments: [] } }));
+  await page.route('**/api/compare/branches', (route) => route.fulfill({ json: { branches } }));
+  await page.route('**/api/compare?*', (route) => route.fulfill({ json: { base: branches[0], head: branches[1], aheadBy: 1, behindBy: 0, totalCommits: 1, filesLimited: false, commits: [{ sha: headSha, subject: 'Fix issue', author: 'Alice', authoredAt: '' }], files: [{ path: 'src/a.ts', status: 'modified', additions: 1, deletions: 0, patchAvailable: true, hunks: [{ header: '@@ -0,0 +1 @@', lines: [{ kind: 'add', oldNumber: null, newNumber: 1, content: 'new code' }] }] }] } }));
+  await page.route('**/api/session', (route) => route.fulfill({ json: { csrfToken: 'test-csrf' } }));
+  await page.route('**/api/compare/pr', (route) => { created = route.request().postDataJSON() as Record<string, unknown>; return route.fulfill({ status: 201, json: { number: 144 } }); });
+
+  await page.goto('/');
+  await page.getByRole('button', { name: 'New pull request' }).click();
+  await page.getByLabel('Compare branch').selectOption('feature/review');
+  await expect(page.getByText('new code')).toBeVisible();
+  await page.getByRole('button', { name: 'Create pull request', exact: true }).click();
+  await page.getByLabel('Title').fill('My PR');
+  expect(created).toBeUndefined();
+  await page.getByRole('button', { name: 'Confirm create pull request' }).click();
+  await expect(page.getByText('PR #144 created.')).toBeVisible();
+  await expect(page.getByRole('button', { name: 'PR #144 My PR' })).toHaveAttribute('aria-current', 'true');
+  expect(created).toMatchObject({ base: 'dev', head: 'feature/review', title: 'My PR', expectedBaseSha: base, expectedHeadSha: headSha });
+});
+
 test('browses Actions runs and filters by workflow', async ({ page }) => {
   await page.route('**/api/prs?state=*', (route) => route.fulfill({ json: { items: [] } }));
   await page.route('**/api/actions/workflows', (route) => route.fulfill({ json: { workflows: [{ id: 12, name: 'CI', path: '.github/workflows/ci.yml', state: 'active' }] } }));

@@ -100,7 +100,7 @@ function stateLabel(pr: PullRequestItem): string {
   return pr.isDraft && pr.state === "OPEN" ? "Draft" : pr.state.toLowerCase();
 }
 
-export default function PullRequestBrowser() {
+export default function PullRequestBrowser({ initialPrNumber = null }: { initialPrNumber?: number | null }) {
   const [items, setItems] = useState<PullRequestItem[] | null>(null);
   const [selectedNumber, setSelectedNumber] = useState<number | null>(null);
   const [detail, setDetail] = useState<PullRequestDetail | null>(null);
@@ -132,11 +132,11 @@ export default function PullRequestBrowser() {
       .then(({ items: nextItems }) => {
         if (!isCurrent) return;
         setItems(nextItems);
-        setSelectedNumber(nextItems[0]?.number ?? null);
+        setSelectedNumber(nextItems.find((pr) => pr.number === initialPrNumber)?.number ?? nextItems[0]?.number ?? null);
       })
       .catch((failure: unknown) => { if (isCurrent) setListError((failure as Error).message); });
     return () => { isCurrent = false; };
-  }, [filter, listVersion]);
+  }, [filter, listVersion, initialPrNumber]);
 
   useEffect(() => {
     if (selectedNumber === null) return;

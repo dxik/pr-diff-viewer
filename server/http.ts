@@ -6,6 +6,7 @@ import { fileURLToPath } from 'node:url';
 import { createGitService, createRunner, mergeMethods, ServiceError, type GitService, type MergeMethod, type PrListState } from './git-service.js';
 import { createPrMetadataService, metadataFields, type MetadataAction, type MetadataField } from './pr-metadata.js';
 import { createActionsService } from './actions-service.js';
+import { createCompareService } from './compare-service.js';
 
 const appRoot = resolve(fileURLToPath(new URL('.', import.meta.url)), '..');
 const mimeTypes: Record<string, string> = {
@@ -33,10 +34,11 @@ async function readJson(request: IncomingMessage): Promise<Record<string, unknow
   }
 }
 
-export function createServer(options: { service?: GitService; metadataService?: ReturnType<typeof createPrMetadataService>; actionsService?: ReturnType<typeof createActionsService>; staticDir?: string; } = {}) {
+export function createServer(options: { service?: GitService; metadataService?: ReturnType<typeof createPrMetadataService>; actionsService?: ReturnType<typeof createActionsService>; compareService?: ReturnType<typeof createCompareService>; staticDir?: string; } = {}) {
   const service = options.service ?? createGitService(createRunner());
   const metadataService = options.metadataService ?? createPrMetadataService(createRunner());
   const actionsService = options.actionsService ?? createActionsService(createRunner());
+  const compareService = options.compareService ?? createCompareService(createRunner());
   const staticDir = options.staticDir ?? resolve(appRoot, 'dist');
   const csrfToken = randomBytes(32).toString('hex');
 
@@ -73,6 +75,24 @@ export function createServer(options: { service?: GitService; metadataService?: 
           sendJson(response, 200, await service.listPrs(state as PrListState));
         } else if (request.method === 'GET' && url.pathname === '/api/actions/workflows') {
           sendJson(response, 200, await actionsService.workflows());
+        } else if (request.method === 'GET' && url.pathname === '/api/compare/branches') {
+          sendJson(response, 200, await compareService.branches());
+        } else if (request.method === 'GET' && url.pathname === '/api/compare') {
+          const base = url.searchParams.getAll('base');
+          const head = url.searchParams.getAll('head');
+          if (base.length !== 1 || head.length !== 1 || !base[0] || !head[0] || base[0].length > 255 || head[0].length > 255) throw new ServiceError('Nhánh không hợp lệ.', 400);
+          sendJson(response, 200, await compareService.compare(base[0], head[0]));
+        } else if (request.method === 'POST' && url.pathname === '/api/compare/pr') {
+          const body = await readJson(request);
+          if (typeof body.base !== 'string' || !body.base || body.base.length > 255 ||
+              typeof body.head !== 'string' || !body.head || body.head.length > 255 ||
+              typeof body.title !== 'string' || !body.title.trim() || body.title.length > 256 ||
+              typeof body.body !== 'string' || body.body.length > 65000 || typeof body.draft !== 'boolean' ||
+              typeof body.expectedBaseSha !== 'string' || !/^[0-9a-f]{40,64}$/.test(body.expectedBaseSha) ||
+              typeof body.expectedHeadSha !== 'string' || !/^[0-9a-f]{40,64}$/.test(body.expectedHeadSha)) {
+            throw new ServiceError('Thông tin PR không hợp lệ.', 400);
+          }
+          sendJson(response, 201, await compareService.createPr({ base: body.base, head: body.head, title: body.title.trim(), body: body.body, draft: body.draft, expectedBaseSha: body.expectedBaseSha, expectedHeadSha: body.expectedHeadSha }));
         } else if (request.method === 'GET' && url.pathname === '/api/actions/runs') {
           const workflowValues = url.searchParams.getAll('workflow');
           const pageValues = url.searchParams.getAll('page');
